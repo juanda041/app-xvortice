@@ -6,60 +6,41 @@ from datetime import datetime
 # Configuración de la página
 st.set_page_config(page_title="Xvortice App", page_icon="🚀")
 
-st.title("🚀 Sistema Xvortice")
+st.title("📝 Registro Diario")
 
 # Conexión a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- REGISTRO DE MOVIMIENTOS ---
-st.header("📝 Registro Diario")
-with st.form("registro"):
-    monto_val = st.number_input("Monto ($)", min_value=0.0)
-    tipo_sel = st.selectbox("Tipo", ['Ingreso', 'Gasto'])
-    cat_sel = st.selectbox("Categoría", ['🛒 Xvortice', '🏠 Hogar', '🚗 Versa', '💰 Bolsa'])
-    detalle_val = st.text_input("Descripción", placeholder="Ej: Venta de perfume / Super")
+# Leer datos existentes de la pestaña "Movimientos"
+try:
+    existing_data = conn.read(worksheet="Movimientos", ttl=0)
+except:
+    existing_data = pd.DataFrame(columns=["Fecha", "Usuario", "Monto", "Tipo", "Categoria", "Descripcion"])
+
+# Formulario de entrada
+with st.form(key="registro_form"):
+    monto = st.number_input("Monto ($)", min_value=0.0, format="%.2f")
+    tipo = st.selectbox("Tipo", ["Ingreso", "Gasto"])
+    categoria = st.selectbox("Categoría", ["Xvortice", "Inversión", "Supermercado", "Personal"])
+    descripcion = st.text_input("Descripción", placeholder="Ej: Venta de perfume / Super")
     
-    btn_g = st.form_submit_button("Guardar en Excel")
+    submit_button = st.form_submit_button(label="Guardar en Excel")
 
-    if btn_g:
-        # Creamos la fila con TUS columnas exactas del Excel
-        nueva_fila = pd.DataFrame([{
-            "Fecha": datetime.now().strftime("%d/%m/%Y"),
-            "Usuario": "Juan",
-            "Tipo": tipo_sel,
-            "Categoria": cat_sel,
-            "Subcategoria": "-", 
-            "Monto": monto_val,
-            "Descripcion": detalle_val
-        }])
-        
-        # Leer datos actuales y agregar la nueva fila
-        data_actual = conn.read()
-        updated_df = pd.concat([data_actual, nueva_fila], ignore_index=True)
-        
-        # Guardar de vuelta en Google Sheets
-        conn.update(data=updated_df)
-        st.success("✅ ¡Guardado en Gestion Patrimonial!")
-
-# --- CALCULADORA E IA ---
-st.divider()
-st.header("📊 Asesor IA Patrimonial")
-col1, col2 = st.columns(2)
-with col1:
-    efectivo = st.number_input("Efectivo ($)", min_value=0.0)
-    bolsa = st.number_input("Bolsa/ETFs ($)", min_value=0.0)
-with col2:
-    negocio = st.number_input("Xvortice ($)", min_value=0.0)
-    deudas = st.number_input("Deudas ($)", min_value=0.0)
-
-if st.button("ANALIZAR CON IA"):
-    activos = efectivo + bolsa + negocio
-    total = activos - deudas
-    st.metric("Patrimonio Neto", f"${total:,.2f}")
+if submit_button:
+    # Crear nueva fila
+    nueva_fila = pd.DataFrame([{
+        "Fecha": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "Usuario": "Juan",
+        "Monto": monto,
+        "Tipo": tipo,
+        "Categoria": categoria,
+        "Descripcion": descripcion
+    }])
     
-    if deudas > (activos * 0.4):
-        st.warning("🤖 IA: Tus deudas están algo altas. Prioriza pagar el Versa o tarjetas antes de meter más a la bolsa.")
-    elif bolsa == 0:
-        st.info("🤖 IA: El negocio va bien, pero recuerda diversificar en ETFs para tu retiro.")
-    else:
-        st.success("🤖 IA: ¡Balance sólido! Estás gestionando muy bien el capital de Xvortice.")
+    # Combinar y actualizar la pestaña "Movimientos"
+    updated_df = pd.concat([existing_data, nueva_fila], ignore_index=True)
+    conn.update(worksheet="Movimientos", data=updated_df)
+    
+    st.success("✅ ¡Guardado con éxito en la pestaña Movimientos!")
+    st.balloons()
+    
