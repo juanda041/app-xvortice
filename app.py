@@ -11,17 +11,18 @@ st.title("🚀 Sistema Xvortice")
 # Conexión a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- REGISTRO DE GASTOS ---
+# --- REGISTRO DE MOVIMIENTOS ---
 st.header("📝 Registro Diario")
 with st.form("registro"):
     monto_val = st.number_input("Monto ($)", min_value=0.0)
     tipo_sel = st.selectbox("Tipo", ['Ingreso', 'Gasto'])
     cat_sel = st.selectbox("Categoría", ['🛒 Xvortice', '🏠 Hogar', '🚗 Versa', '💰 Bolsa'])
-    detalle_val = st.text_input("Descripción", placeholder="Ej: Venta de perfume")
+    detalle_val = st.text_input("Descripción", placeholder="Ej: Venta de perfume / Super")
     
     btn_g = st.form_submit_button("Guardar en Excel")
 
     if btn_g:
+        # Creamos la fila con TUS columnas exactas del Excel
         nueva_fila = pd.DataFrame([{
             "Fecha": datetime.now().strftime("%d/%m/%Y"),
             "Usuario": "Juan",
@@ -32,8 +33,11 @@ with st.form("registro"):
             "Descripcion": detalle_val
         }])
         
+        # Leer datos actuales y agregar la nueva fila
         data_actual = conn.read()
         updated_df = pd.concat([data_actual, nueva_fila], ignore_index=True)
+        
+        # Guardar de vuelta en Google Sheets
         conn.update(data=updated_df)
         st.success("✅ ¡Guardado en Gestion Patrimonial!")
 
@@ -54,8 +58,8 @@ if st.button("ANALIZAR CON IA"):
     st.metric("Patrimonio Neto", f"${total:,.2f}")
     
     if deudas > (activos * 0.4):
-        st.warning("🤖 IA: Deudas altas. Prioriza pagar antes de invertir.")
+        st.warning("🤖 IA: Tus deudas están algo altas. Prioriza pagar el Versa o tarjetas antes de meter más a la bolsa.")
     elif bolsa == 0:
-        st.info("🤖 IA: Recuerda tus metas de inversión en la bolsa (VOO/NVDA).")
+        st.info("🤖 IA: El negocio va bien, pero recuerda diversificar en ETFs para tu retiro.")
     else:
-        st.success("🤖 IA: ¡Balance sólido! Vas por buen camino.")
+        st.success("🤖 IA: ¡Balance sólido! Estás gestionando muy bien el capital de Xvortice.")
