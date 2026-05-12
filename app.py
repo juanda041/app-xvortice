@@ -34,7 +34,6 @@ def obtener_precios(tickers):
     return precios
 
 # --- 1. ESTADO PATRIMONIAL ---
-total_neto = 0 # Variable global para usar en proyección
 if mod == "📊 Estado Patrimonial":
     st.header("Resumen de Patrimonio Real")
     cash_otros = 0
@@ -99,17 +98,15 @@ elif mod == "📝 Registro de Caja":
     st.dataframe(df_m, use_container_width=True)
     with st.form("reg_form"):
         tipo = st.selectbox("Tipo", ["Ingreso", "Gasto"])
-        val = st.number_input("Monto")
+        monto = st.number_input("Monto")
         if st.form_submit_button("Guardar"):
-            nuevo = pd.DataFrame([{"Fecha":str(pd.Timestamp.now().date()), "Tipo":tipo, "Monto":val}])
+            nuevo = pd.DataFrame([{"Fecha":str(pd.Timestamp.now().date()), "Tipo":tipo, "Monto":monto}])
             conn.update(worksheet="Movimientos", data=pd.concat([df_m, nuevo], ignore_index=True))
             st.rerun()
 
-# --- 5. PROYECCIÓN (INTERÉS COMPUESTO) ---
+# --- 5. PROYECCIÓN ---
 elif mod == "🚀 Proyección":
     st.header("🚀 Simulador de Libertad Financiera")
-    st.write("Mira cuánto crecerá tu capital si sigues invirtiendo en ETFs y en Xvortice.")
-    
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         cap_inicial = st.number_input("Capital Inicial ($)", value=4000.0)
@@ -118,9 +115,8 @@ elif mod == "🚀 Proyección":
         anios = st.slider("Años de espera", 1, 30, 10)
         tasa = st.slider("Tasa de retorno anual (%)", 1, 20, 10)
     
-    # Cálculo de Interés Compuesto: A = P(1 + r/n)^(nt) + PMT * [((1 + r/n)^(nt) - 1) / (r/n)]
     r = tasa / 100
-    n = 12 # compuesto mensualmente
+    n = 12 
     t = anios
     pmt = aporte_mensual
     
@@ -128,4 +124,4 @@ elif mod == "🚀 Proyección":
     
     st.markdown("---")
     st.success(f"### En {anios} años, tu patrimonio sería de: **${monto_final:,.2f}**")
-    st.info(f"Esto asumiendo que el S&P 500 (VOO) rinde un {tasa}% promedio y tú
+    st.info(f"Asumiendo un rendimiento del {tasa}% anual y aportes constantes.")
