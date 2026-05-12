@@ -3,115 +3,119 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import yfinance as yf
 import plotly.express as px
-import numpy as np
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Xvortice Corporate", layout="wide", page_icon="🏛️")
+st.set_page_config(page_title="Xvortice Executive", layout="wide", page_icon="🏛️")
 
-# --- 2. CONEXIÓN INTELIGENTE CON GOOGLE SHEETS ---
+# --- 2. CONEXIÓN ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-@st.cache_data(ttl=300) # Cache de 5 min para no saturar la conexión
 def cargar_todo():
     try:
-        # Cargamos las 4 hojas que vi en tus fotos
+        # Cargamos las hojas principales de tus fotos
         m = conn.read(worksheet="Movimientos", ttl="0")
         p = conn.read(worksheet="Portafolio", ttl="0")
-        c = conn.read(worksheet="creditos", ttl="0")
-        conf = conn.read(worksheet="Configuracion", ttl="0")
+        c = conn.read(worksheet="Creditos", ttl="0") # Asegúrate que en Excel sea 'Creditos'
         
-        # Limpieza de Montos para que la IA pueda sumar
-        for df in [m, c]:
-            col_monto = 'Monto' if 'Monto' in df.columns else 'Monto Total'
-            if col_monto in df.columns:
-                df[col_monto] = pd.to_numeric(df[col_monto], errors='coerce').fillna(0)
-        return m, p, c, conf
+        # Limpieza para que la IA y las gráficas funcionen
+        if not m.empty and 'Monto' in m.columns:
+            m['Monto'] = pd.to_numeric(m['Monto'], errors='coerce').fillna(0)
+        if not c.empty and 'Saldo pendiente' in c.columns:
+            c['Saldo pendiente'] = pd.to_numeric(c['Saldo pendiente'], errors='coerce').fillna(0)
+            
+        return m, p, c
     except Exception as e:
-        st.error(f"Error cargando hojas: {e}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        st.error(f"Error de conexión: {e}")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-df_mov, df_port, df_cred, df_conf = cargar_todo()
+df_mov, df_port, df_cred = cargar_todo()
 
-# --- 3. INTERFAZ LATERAL ---
+# --- 3. MENÚ LATERAL ---
 st.sidebar.title("🏛️ Xvortice Corporate")
-st.sidebar.markdown("---")
-menu = st.sidebar.selectbox("Módulo Estratégico:", 
-    ["Estado Patrimonial", "Gestión de Créditos", "Cartera de Inversiones", "Registro de Operaciones"])
+menu = st.sidebar.selectbox("Seleccione Módulo:", 
+    ["Estado Patrimonial", "Registro de Operaciones", "Gestión de Créditos", "Inversiones"])
 
-meta_ahorro = st.sidebar.number_input("Objetivo de Capital ($)", value=5000)
+meta_ahorro = 5000
 
 # --- 4. LÓGICA DE MÓDULOS ---
 
+# --- MÓDULO 1: PATRIMONIO ---
 if menu == "Estado Patrimonial":
-    st.header("📊 Análisis de Activos y Patrimonio")
+    st.header("📊 Análisis de Activos")
     if not df_mov.empty:
-        # Cálculo basado en tu columna 'Tipo' y 'Monto' (Foto 6)
         ingresos = df_mov[df_mov['Tipo'] == 'Ingreso']['Monto'].sum()
         gastos = df_mov[df_mov['Tipo'] == 'Gasto']['Monto'].sum()
-        total_actual = ingresos - gastos
+        actual = ingresos - gastos
         
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Capital Xvortice", f"${total_actual:,.2f}")
+        c1, c2 = st.columns(2)
+        c1.metric("Capital Neto Xvortice", f"${actual:,.2f}")
         c2.metric("Meta 2026", f"${meta_ahorro:,.2f}")
-        c3.metric("Faltante", f"${max(0, meta_ahorro - total_actual):,.2f}")
+        st.progress(min(actual/meta_ahorro, 1.0) if meta_ahorro > 0 else 0)
         
-        st.progress(min(total_actual/meta_ahorro, 1.0) if meta_ahorro > 0 else 0)
-        
-        # Analista IA
-        st.info(f"💡 **Analista Xvortice:** Tienes un flujo neto de ${total_actual:,.2f}. Tu reserva de capital es el pilar de tu expansión.")
-        
-        st.subheader("📝 Historial de Movimientos (Vista Excel)")
-        st.dataframe(df_mov) # Muestra todas tus columnas: Usuario, Comentario, etc.
+        st.markdown("---")
+        st.subheader("🤖 Analista IA Xvortice")
+        if actual < meta_ahorro:
+            st.info(f"Juan, el capital actual es ${actual:,.2f}. Faltan ${meta_ahorro - actual:,.2f} para los $5,000.")
+        else:
+            st.success("¡Meta de $5,000 alcanzada!")
+            
+        st.write("### Historial de Movimientos")
+        st.dataframe(df_mov, use_container_width=True)
     else:
         st.warning("No hay datos en 'Movimientos'.")
 
-elif menu == "Gestión de Créditos":
-    st.header("💸 Cuentas Activas")
-    if not df_cred.empty:
-        st.dataframe(df_cred) # Basado en columnas de Foto 8: Cliente, Producto, Saldo
-        total_por_cobrar = df_cred['Saldo pendiente'].sum() if 'Saldo pendiente' in df_cred.columns else 0
-        st.success(f"Total por recuperar: ${total_por_cobrar:,.2f}")
-    else:
-        st.info("No hay créditos pendientes registrados.")
-
-elif menu == "Cartera de Inversiones":
-    st.header("📈 Cartera Live")
-    if not df_port.empty and 'Ticker' in df_port.columns:
-        # Sistema anti-bloqueo para yfinance
-        try:
-            tickers = " ".join(df_port['Ticker'].tolist())
-            data = yf.download(tickers, period="1d")['Close'].iloc[-1]
-            
-            df_resumen = df_port.copy()
-            df_resumen['Precio Actual'] = df_resumen['Ticker'].map(data)
-            df_resumen['Valor Total'] = df_resumen['Cantidad'] * df_resumen['Precio Actual']
-            st.dataframe(df_resumen)
-            st.plotly_chart(px.pie(df_resumen, values='Valor Total', names='Ticker', title="Distribución de Activos"))
-        except:
-            st.warning("⚠️ El mercado está cerrado o hay mucha demanda. Mostrando datos locales.")
-            st.dataframe(df_port)
-    else:
-        st.info("Registra tus ETFs o Acciones en la hoja 'Portafolio'.")
-
+# --- MÓDULO 2: REGISTRO ---
 elif menu == "Registro de Operaciones":
-    st.header("➕ Registrar Nueva Operación")
-    with st.form("form_registro"):
+    st.header("📝 Nuevo Registro de Movimiento")
+    with st.form("form_reg"):
         col1, col2 = st.columns(2)
-        fecha = col1.date_input("Fecha")
-        usuario = col1.selectbox("Usuario", ["Juan Daniel", "Jenny"])
-        tipo = col2.selectbox("Tipo", ["Ingreso", "Gasto"])
-        cat = col2.selectbox("Categoría", ["Venta de Artículo", "Reserva de Capital", "Otros"])
-        monto = st.number_input("Monto ($)", min_value=0.0)
-        coment = st.text_input("Comentario")
+        f_fecha = col1.date_input("Fecha")
+        f_user = col1.selectbox("Usuario", ["Juan Daniel", "Jenny"])
+        f_tipo = col2.selectbox("Tipo", ["Ingreso", "Gasto"])
+        f_cat = col2.selectbox("Categoría", ["Venta de Artículo", "Reserva de Capital", "Gasto Personal"])
         
-        if st.form_submit_button("Confirmar Registro"):
-            # Creamos el registro con TODAS tus columnas (Foto 6)
-            nuevo_dato = pd.DataFrame([{
-                "Fecha": str(fecha), "Usuario": usuario, "Tipo": tipo, 
-                "Categoria": cat, "Monto": monto, "Comentario": coment
+        f_sub = st.text_input("Subcategoría")
+        f_monto = st.number_input("Monto ($)", min_value=0.0)
+        f_coment = st.text_area("Comentario / Descripción")
+        
+        if st.form_submit_button("Guardar en la Nube"):
+            nuevo = pd.DataFrame([{
+                "Fecha": str(f_fecha), "Usuario": f_user, "Tipo": f_tipo, 
+                "Categoria": f_cat, "Subcategoria": f_sub, "Monto": f_monto, "Comentario": f_coment
             }])
-            df_actualizado = pd.concat([df_mov, nuevo_dato], ignore_index=True)
-            conn.update(worksheet="Movimientos", data=df_actualizado)
-            st.success("✅ Datos guardados en la nube.")
-            st.cache_data.clear()
+            df_up = pd.concat([df_mov, nuevo], ignore_index=True)
+            conn.update(worksheet="Movimientos", data=df_up)
+            st.success("✅ Guardado con éxito")
             st.rerun()
+
+# --- MÓDULO 3: CRÉDITOS ---
+elif menu == "Gestión de Créditos":
+    st.header("💸 Cuentas por Cobrar")
+    
+    with st.expander("➕ Registrar Nuevo Crédito"):
+        with st.form("form_cred"):
+            c1, c2 = st.columns(2)
+            f_cli = c1.text_input("Cliente")
+            f_prod = c2.text_input("Producto")
+            f_sal = st.number_input("Saldo Pendiente ($)", min_value=0.0)
+            f_est = st.selectbox("Estado", ["Pendiente", "Abonado", "Pagado"])
+            if st.form_submit_button("Guardar Crédito"):
+                nuevo_c = pd.DataFrame([{"Cliente": f_cli, "Producto": f_prod, "Saldo pendiente": f_sal, "Estado": f_est}])
+                df_up_c = pd.concat([df_cred, nuevo_c], ignore_index=True)
+                conn.update(worksheet="Creditos", data=df_up_c)
+                st.success("✅ Crédito registrado")
+                st.rerun()
+    
+    st.markdown("---")
+    if not df_cred.empty:
+        st.dataframe(df_cred, use_container_width=True)
+        total_c = df_cred['Saldo pendiente'].sum()
+        st.metric("Total por recuperar", f"${total_c:,.2f}")
+
+# --- MÓDULO 4: INVERSIONES ---
+elif menu == "Inversiones":
+    st.header("📈 Cartera Live")
+    if not df_port.empty:
+        st.dataframe(df_port, use_container_width=True)
+    else:
+        st.info("No hay acciones o ETFs registrados en 'Portafolio'.")
