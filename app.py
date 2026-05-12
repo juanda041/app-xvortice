@@ -12,8 +12,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 @st.cache_data(ttl=300) 
 def cargar_datos(nombre_hoja):
     try:
-        df = conn.read(worksheet=nombre_hoja, ttl="0")
-        return df
+        return conn.read(worksheet=nombre_hoja, ttl="0")
     except Exception:
         return pd.DataFrame()
 
@@ -24,74 +23,78 @@ df_cred = cargar_datos("Creditos")
 # --- 3. MENÚ LATERAL ---
 st.sidebar.title("🏛️ Xvortice Corp")
 st.sidebar.markdown("---")
-# Aquí cambias la meta cuando quieras
-meta_ahorro = st.sidebar.number_input("🎯 Ajustar Meta ($)", value=5000, step=500)
+
+# Meta ajustable por el usuario
+st.sidebar.subheader("⚙️ Configuración")
+meta_ahorro = st.sidebar.number_input("Ajustar Meta de Patrimonio ($)", value=5000, step=500)
 
 st.sidebar.markdown("---")
-menu = st.sidebar.selectbox("Seleccione Módulo:", 
+menu = st.sidebar.selectbox("Módulo:", 
     ["Estado Patrimonial", "Interés Compuesto", "Registro de Operaciones", "Gestión de Créditos", "Inversiones"])
 
 # --- 4. LÓGICA DE MÓDULOS ---
 
+# --- MÓDULO 1: PATRIMONIO (SEPARADO Y CON IA) ---
 if menu == "Estado Patrimonial":
-    st.header("📊 Resumen de Capital")
+    st.header("📊 Análisis de Ingresos y Gastos")
+    
     if not df_mov.empty:
-        # Limpieza de datos para evitar el error de los 400 mil dólares
         df_mov['Monto'] = pd.to_numeric(df_mov['Monto'], errors='coerce').fillna(0)
-        ingresos = df_mov[df_mov['Tipo'] == 'Ingreso']['Monto'].sum()
-        gastos = df_mov[df_mov['Tipo'] == 'Gasto']['Monto'].sum()
-        actual = ingresos - gastos
         
+        # Filtrado para cálculos
+        df_ingresos = df_mov[df_mov['Tipo'] == 'Ingreso']
+        df_gastos = df_mov[df_mov['Tipo'] == 'Gasto']
+        
+        total_ingresos = df_ingresos['Monto'].sum()
+        total_gastos = df_gastos['Monto'].sum()
+        actual = total_ingresos - total_gastos
+        
+        # Métricas de resumen
         c1, c2, c3 = st.columns(3)
-        c1.metric("Capital Neto", f"${actual:,.2f}")
-        c2.metric("Gastos Totales", f"${gastos:,.2f}", delta_color="inverse")
-        c3.metric("Meta", f"${meta_ahorro:,.2f}")
+        c1.metric("Ingresos (Suma)", f"${total_ingresos:,.2f}")
+        c2.metric("Gastos (Resta)", f"${total_gastos:,.2f}", delta=f"-${total_gastos:,.2f}", delta_color="inverse")
+        c3.metric("Capital Neto Real", f"${actual:,.2f}")
         
         progreso = min(actual/meta_ahorro, 1.0) if meta_ahorro > 0 else 0
-        st.progress(progreso, text=f"Progreso: {progreso*100:.1f}%")
+        st.progress(progreso, text=f"Progreso hacia la meta de ${meta_ahorro:,.0f}: {progreso*100:.1f}%")
 
-        # --- ANÁLISIS DE GASTOS ---
+        # --- VISTA EN DOS COLUMNAS ---
         st.markdown("---")
-        st.subheader("💸 ¿En qué se va el dinero?")
-        df_gastos = df_mov[df_mov['Tipo'] == 'Gasto']
-        if not df_gastos.empty:
-            # Si no tienes columna 'Categoria', usamos 'Comentario'
-            col_agrupar = 'Categoria' if 'Categoria' in df_gastos.columns else 'Comentario'
-            resumen_gastos = df_gastos.groupby(col_agrupar)['Monto'].sum()
-            st.bar_chart(resumen_gastos)
+        col_izq, col_der = st.columns(2)
         
-        # --- IA ANALISTA ---
-        st.info(f"🤖 **Analista IA:** Juan, {'¡vas volando!' if actual >= meta_ahorro else f'faltan ${meta_ahorro-actual:,.2f} para la meta.'}")
+        with col_izq:
+            st.subheader("💰 Entradas de Capital")
+            if not df_ingresos.empty:
+                cat_ing = 'Categoria' if 'Categoria' in df_ingresos.columns else 'Comentario'
+                res_ing = df_ingresos.groupby(cat_ing)['Monto'].sum()
+                st.bar_chart(res_ing, color="#28a745")
+                st.dataframe(df_ingresos, use_container_width=True)
+            else: st.info("No hay ingresos.")
 
+        with col_der:
+            st.subheader("💸 Salidas y Gastos")
+            if not df_gastos.empty:
+                cat_gas = 'Categoria' if 'Categoria' in df_gastos.columns else 'Comentario'
+                res_gas = df_gastos.groupby(cat_gas)['Monto'].sum()
+                st.bar_chart(res_gas, color="#dc3545")
+                st.dataframe(df_gastos, use_container_width=True)
+            else: st.info("No hay gastos.")
+
+        # --- ANALISTA IA ---
+        st.markdown("---")
+        st.subheader("🤖 Analista IA Xvortice")
+        col_ia, col_tip = st.columns([2, 1])
+        with col_ia:
+            if actual < meta_ahorro:
+                st.warning(f"Juan, faltan ${meta_ahorro - actual:,.2f} para la meta. Tus ingresos son sólidos, pero vigila las salidas.")
+            else:
+                st.success(f"¡Felicidades! Meta de ${meta_ahorro:,.2f} superada. ¿Subimos el nivel?")
+        with col_tip:
+            consejos = ["Ahorra el 10% de cada bono.", "Revisa el costo promedio en Hapi.", "Controla los gastos del Versa."]
+            st.info(f"💡 **Tip:** {np.random.choice(consejos)}")
     else:
-        st.warning("No hay datos en Movimientos. Registra algo nuevo.")
+        st.info("Registra tu primer movimiento para ver el análisis.")
 
-elif menu == "Registro de Operaciones":
-    st.header("📝 Nuevo Movimiento")
-    with st.form("f_reg"):
-        f_user = st.selectbox("Usuario", ["Juan Daniel", "Jenny"])
-        f_tipo = st.selectbox("Tipo", ["Ingreso", "Gasto"])
-        # CATEGORÍAS NUEVAS PARA TU GRÁFICO
-        f_cat = st.selectbox("Categoría", ["Inversión Hapi", "Comida", "Versa (Gas/Mec)", "Venta Xvortice", "Préstamo", "Personal", "Otro"])
-        f_monto = st.number_input("Monto ($)", min_value=0.0)
-        f_coment = st.text_area("Comentario")
-        if st.form_submit_button("Guardar en Excel"):
-            nuevo = pd.DataFrame([{"Fecha": str(pd.Timestamp.now().date()), "Usuario": f_user, "Tipo": f_tipo, "Categoria": f_cat, "Monto": f_monto, "Comentario": f_coment}])
-            df_up = pd.concat([df_mov, nuevo], ignore_index=True)
-            conn.update(worksheet="Movimientos", data=df_up)
-            st.cache_data.clear()
-            st.success("✅ ¡Guardado con éxito!")
-
-# --- Módulos de Créditos, Inversiones e Interés se mantienen igual para no borrar nada ---
-elif menu == "Gestión de Créditos":
-    st.header("💸 Cuentas por Cobrar")
-    st.dataframe(df_cred, use_container_width=True)
-
-elif menu == "Inversiones":
-    st.header("📈 Portafolio Hapi")
-    st.dataframe(df_port, use_container_width=True)
-
+# --- MÓDULO 2: INTERÉS COMPUESTO ---
 elif menu == "Interés Compuesto":
-    st.header("📈 Simulador")
-    cap = st.number_input("Capital", value=4000.0)
-    st.write(f"Proyección simple: {cap * 1.10:,.2f} a un año (10%)")
+    st.header("📈 Simul
