@@ -29,7 +29,6 @@ meta_ahorro = 5000
 
 # --- 4. LÓGICA DE MÓDULOS ---
 
-# --- MÓDULO 1: PATRIMONIO (CON ANALISTA IA) ---
 if menu == "Estado Patrimonial":
     st.header("📊 Resumen de Capital")
     if not df_mov.empty:
@@ -43,7 +42,6 @@ if menu == "Estado Patrimonial":
         progreso = min(actual/meta_ahorro, 1.0) if meta_ahorro > 0 else 0
         st.progress(progreso)
 
-        # --- SECCIÓN DEL ANALISTA IA ---
         st.markdown("---")
         st.subheader("🤖 Analista IA Xvortice")
         
@@ -53,26 +51,26 @@ if menu == "Estado Patrimonial":
             if actual < 2000:
                 st.warning(f"Juan, estamos en fase de acumulación. Faltan ${meta_ahorro - actual:,.2f} para la primera meta grande.")
             elif 2000 <= actual < 5000:
-                st.info(f"¡Excelente ritmo! Llevas un {progreso*100:.1f}% de la meta. El interés compuesto de tus ETFs ayudará a cerrar la brecha.")
+                st.info(f"¡Excelente ritmo! Llevas un {progreso*100:.1f}% de la meta.")
             else:
-                st.success("¡Meta de $5,000 alcanzada! Es momento de proyectar los $10,000 y diversificar más en Hapi.")
+                st.success("¡Meta de $5,000 alcanzada! Vamos por el siguiente nivel.")
 
         with col_tip:
+            # AQUÍ ESTÁ EL CAMBIO: Usamos st.info con un icono de bombilla
             consejos = [
                 "Revisa el costo promedio de NVDA antes de comprar más.",
-                "El ahorro constante de $50 biweekly es tu mejor arma.",
-                "No olvides registrar las ventas de perfumes y calzado de una vez.",
-                "¿Ya revisaste el nivel de aceite del Versa esta semana?"
+                "El ahorro constante biweekly es tu mejor arma.",
+                "No olvides registrar las ventas de perfumes hoy.",
+                "¿Ya revisaste el nivel de aceite del Versa?"
             ]
-            st.light_bulb(np.random.choice(consejos))
+            st.info(f"💡 **Tip del día:** {np.random.choice(consejos)}")
         
         st.markdown("---")
         st.write("### Historial de Movimientos")
         st.dataframe(df_mov, use_container_width=True)
     else:
-        st.info("Esperando datos de Movimientos...")
+        st.info("Cargando datos...")
 
-# --- MÓDULO 2: INTERÉS COMPUESTO ---
 elif menu == "Interés Compuesto":
     st.header("📈 Proyección de Crecimiento")
     col1, col2 = st.columns(2)
@@ -80,30 +78,25 @@ elif menu == "Interés Compuesto":
     aporte = col1.number_input("Aporte Mensual ($)", value=100.0)
     años = col2.slider("Años", 1, 30, 10)
     tasa = col2.slider("Tasa Anual (%)", 1, 15, 10) / 100
-    
     meses = años * 12
     tasa_m = tasa / 12
     final = cap_i * (1 + tasa_m)**meses + aporte * (((1 + tasa_m)**meses - 1) / tasa_m)
-    
     st.success(f"### Estimación en {años} años: ${final:,.2f}")
-    st.caption("Nota: Este cálculo es una simulación basada en interés compuesto mensual.")
 
-# --- MÓDULO 3: REGISTRO MOVIMIENTOS ---
 elif menu == "Registro de Operaciones":
     st.header("📝 Nuevo Movimiento")
     with st.form("form_registro"):
         f_user = st.selectbox("Usuario", ["Juan Daniel", "Jenny"])
         f_tipo = st.selectbox("Tipo", ["Ingreso", "Gasto"])
         f_monto = st.number_input("Monto ($)", min_value=0.0)
-        f_coment = st.text_area("Comentario / Descripción")
+        f_coment = st.text_area("Comentario")
         if st.form_submit_button("Guardar en Excel"):
             nuevo = pd.DataFrame([{"Fecha": str(pd.Timestamp.now().date()), "Usuario": f_user, "Tipo": f_tipo, "Monto": f_monto, "Comentario": f_coment}])
             df_up = pd.concat([df_mov, nuevo], ignore_index=True)
             conn.update(worksheet="Movimientos", data=df_up)
             st.cache_data.clear()
-            st.success("✅ Datos guardados correctamente.")
+            st.success("✅ Guardado.")
 
-# --- MÓDULO 4: CRÉDITOS ---
 elif menu == "Gestión de Créditos":
     st.header("💸 Cuentas por Cobrar")
     with st.expander("➕ Agregar nuevo crédito"):
@@ -117,40 +110,21 @@ elif menu == "Gestión de Créditos":
                 conn.update(worksheet="Creditos", data=df_up_c)
                 st.cache_data.clear()
                 st.rerun()
-    
-    if not df_cred.empty:
-        st.dataframe(df_cred, use_container_width=True)
-        total_deuda = pd.to_numeric(df_cred['Saldo pendiente'], errors='coerce').sum()
-        st.metric("Total por Cobrar", f"${total_deuda:,.2f}")
+    st.dataframe(df_cred, use_container_width=True)
 
-# --- MÓDULO 5: INVERSIONES ---
 elif menu == "Inversiones":
     st.header("📈 Cartera de Inversión")
-    
-    with st.expander("➕ Registrar Nueva Inversión (Acción/ETF)"):
+    with st.expander("➕ Registrar Nueva Inversión"):
         with st.form("f_inv"):
             col_a, col_b = st.columns(2)
-            f_ticker = col_a.text_input("Ticker (Ej: VOO, NVDA, O)")
-            f_nombre = col_b.text_input("Nombre del Activo")
+            f_ticker = col_a.text_input("Ticker")
+            f_nombre = col_b.text_input("Nombre")
             f_cant = col_a.number_input("Cantidad", min_value=0.0, step=0.01)
             f_costo = col_b.number_input("Costo Promedio ($)", min_value=0.0, step=0.01)
-            
-            if st.form_submit_button("Guardar Inversión"):
-                nueva_inv = pd.DataFrame([{
-                    "Ticker": f_ticker.upper(),
-                    "Nombre": f_nombre,
-                    "Cantidad": f_cant,
-                    "Costo Promedio": f_costo
-                }])
+            if st.form_submit_button("Guardar"):
+                nueva_inv = pd.DataFrame([{"Ticker": f_ticker.upper(), "Nombre": f_nombre, "Cantidad": f_cant, "Costo Promedio": f_costo}])
                 df_up_i = pd.concat([df_port, nueva_inv], ignore_index=True)
                 conn.update(worksheet="Portafolio", data=df_up_i)
                 st.cache_data.clear()
-                st.success(f"✅ {f_ticker} añadido.")
                 st.rerun()
-    
-    st.markdown("---")
-    if not df_port.empty:
-        st.subheader("Tus Activos Actuales")
-        st.dataframe(df_port, use_container_width=True)
-    else:
-        st.info("No hay activos registrados en el portafolio.")
+    st.dataframe(df_port, use_container_width=True)
