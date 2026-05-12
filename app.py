@@ -18,13 +18,11 @@ def cargar(hoja):
 def precios_vivos(ticks):
     p_dict = {}
     for t in ticks:
-        if str(t).upper() == "CASH":
-            continue
+        if str(t).upper() == "CASH": continue
         try:
             val = yf.Ticker(str(t).strip().upper()).history(period="1d")['Close'].iloc[-1]
             p_dict[t] = val
-        except: 
-            p_dict[t] = None
+        except: p_dict[t] = None
     return p_dict
 
 # Carga de datos
@@ -41,27 +39,18 @@ mod = st.sidebar.selectbox("Módulo:", ["Estado Patrimonial", "Registro", "Inver
 if mod == "Estado Patrimonial":
     st.header("📊 Patrimonio Real")
     df_m['Monto'] = pd.to_numeric(df_m['Monto'], errors='coerce').fillna(0)
-    # Efectivo externo (el que anotas en el Registro)
     cash_mov = df_m[df_m['Tipo']=='Ingreso']['Monto'].sum() - df_m[df_m['Tipo']=='Gasto']['Monto'].sum()
     
     v_inv = 0
-    cash_hapi = 0
-    
     if not df_p.empty:
-        # SEPARACIÓN: Acciones vs Efectivo en Portafolio
         df_acciones = df_p[df_p['Ticker'] != 'CASH'].copy()
         df_efectivo = df_p[df_p['Ticker'] == 'CASH'].copy()
         
-        # 1. Valor de Acciones en Vivo
         tk_list = df_acciones['Ticker'].dropna().unique().tolist()
         v_dict = precios_vivos(tk_list)
         df_acciones['Live'] = df_acciones['Ticker'].map(v_dict)
         v_acciones = (pd.to_numeric(df_acciones['Cantidad']) * df_acciones['Live'].fillna(0)).sum()
-        
-        # 2. Valor de la Liquidez en Hapi
         cash_hapi = pd.to_numeric(df_efectivo['Cantidad']).sum()
-        
-        # Bolsa Live total (Acciones + Cash de Hapi)
         v_inv = v_acciones + cash_hapi
 
     total = cash_mov + v_inv
@@ -75,13 +64,6 @@ if mod == "Estado Patrimonial":
     st.subheader("🔍 Desglose de Inversiones")
     if not df_p.empty:
         st.dataframe(df_p[['Ticker', 'Nombre', 'Cantidad']], use_container_width=True)
-    
-    st.markdown("---")
-    st.subheader("🤖 Analista IA Xvortice")
-    if total < meta:
-        st.warning(f"Daniel, faltan ${meta-total:,.2f} para tu meta de $10k. Xvortice sigue en marcha.")
-    else:
-        st.success("¡Meta superada! Es momento de escalar el capital.")
 
 # --- 2. REGISTRO ---
 elif mod == "Registro":
@@ -108,20 +90,34 @@ elif mod == "Registro":
                 st.cache_data.clear()
                 st.rerun()
 
-# --- 3. INVERSIONES ---
+# --- 3. INVERSIONES (CON SUMA INTELIGENTE) ---
 elif mod == "Inversiones":
     st.header("📈 Portafolio Hapi")
-    with st.expander("➕ Añadir Activo / Cash"):
-        with st.form("fp"):
+    with st.expander("➕ Añadir / Incrementar Posición"):
+        with st.form("fp", clear_on_submit=True):
             c1, c2 = st.columns(2)
-            tk = c1.text_input("Ticker (Usa 'CASH' para liquidez)")
-            nm = c2.text_input("Nombre")
-            ct = c1.number_input("Cantidad", step=0.00001, format="%.5f")
-            pc = c2.number_input("Precio Compra")
+            tk = c1.text_input("Ticker (Ej: NVDA o CASH)").upper().strip()
+            nm = c2.text_input("Nombre (Solo para nuevos)")
+            ct_nueva = c1.number_input("Cantidad a sumar", step=0.00001, format="%.5f")
+            pc = c2.number_input("Precio de Compra")
             cp = c1.number_input("Costo Promedio")
-            if st.form_submit_button("Actualizar Bolsa"):
-                new = pd.DataFrame([{"Ticker":tk.upper(),"Nombre":nm,"Cantidad":ct,"Precio de Compra":pc,"Costo Promedio":cp}])
-                conn.update(worksheet="Portafolio", data=pd.concat([df_p, new], ignore_index=True))
+            
+            if st.form_submit_button("Actualizar Portafolio"):
+                if not df_p.empty and tk in df_p['Ticker'].astype(str).values:
+                    # Si ya existe, sumamos la cantidad
+                    idx = df_p.index[df_p['Ticker'] == tk][0]
+                    df_p.at[idx, 'Cantidad'] = float(df_p.at[idx, 'Cantidad']) + ct_nueva
+                    # Actualizamos precio y promedio si se ponen
+                    if pc > 0: df_p.at[idx, 'Precio de Compra'] = pc
+                    if cp > 0: df_p.at[idx, 'Costo Promedio'] = cp
+                    st.success(f"Posición de {tk} actualizada correctamente.")
+                else:
+                    # Si es nuevo, añadimos fila
+                    new_row = pd.DataFrame([{"Ticker":tk,"Nombre":nm,"Cantidad":ct_nueva,"Precio de Compra":pc,"Costo Promedio":cp}])
+                    df_p = pd.concat([df_p, new_row], ignore_index=True)
+                    st.success(f"Nuevo activo {tk} añadido.")
+                
+                conn.update(worksheet="Portafolio", data=df_p)
                 st.cache_data.clear()
                 st.rerun()
     st.dataframe(df_p, use_container_width=True)
@@ -143,7 +139,7 @@ elif mod == "Créditos":
 # --- 5. PROYECCIÓN ---
 elif mod == "Proyección":
     st.header("📈 Interés Compuesto")
-    cap = st.number_input("Capital Inicial", value=total if 'total' in locals() else 4000.0)
+    cap = st.number_input("Capital Inicial", value=4000.0)
     años = st.slider("Años", 1, 30, 10)
     res = cap * (1.10**años)
     st.success(f"### Estimación (10% anual): ${res:,.2f}")
