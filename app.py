@@ -65,7 +65,7 @@ if mod == "📊 Estado Patrimonial":
         st.markdown("---")
         g1, g2 = st.columns([2, 1])
         with g1:
-            fig = px.pie(df_grafica, values='Valor', names='Ticker', hole=0.5, title="Distribución")
+            fig = px.pie(df_grafica, values='Valor', names='Ticker', hole=0.5, title="Distribución de Activos")
             st.plotly_chart(fig, use_container_width=True)
         with g2:
             df_grafica['%'] = (df_grafica['Valor'] / total_bolsa * 100).map("{:.1f}%".format)
@@ -80,8 +80,9 @@ elif mod == "📈 Inversiones":
             tk = st.text_input("Ticker").upper().strip()
             cant = st.number_input("Cantidad a sumar", format="%.5f")
             if st.form_submit_button("Actualizar"):
-                if tk in df_p['Ticker'].values:
-                    df_p.loc[df_p['Ticker']==tk, 'Cantidad'] += cant
+                if not df_p.empty and tk in df_p['Ticker'].astype(str).values:
+                    idx = df_p.index[df_p['Ticker'] == tk][0]
+                    df_p.at[idx, 'Cantidad'] = float(df_p.at[idx, 'Cantidad']) + cant
                 else:
                     df_p = pd.concat([df_p, pd.DataFrame([{"Ticker":tk, "Cantidad":cant}])], ignore_index=True)
                 conn.update(worksheet="Portafolio", data=df_p)
@@ -89,20 +90,32 @@ elif mod == "📈 Inversiones":
 
 # --- 3. CUENTAS POR COBRAR ---
 elif mod == "💸 Cuentas por Cobrar":
-    st.header("Créditos Pendientes")
+    st.header("Créditos Pendientes del Negocio")
     st.dataframe(df_c, use_container_width=True)
+    with st.expander("➕ Registrar Nuevo Cliente"):
+        with st.form("cred_form", clear_on_submit=True):
+            cliente = st.text_input("Nombre del Cliente")
+            saldo = st.number_input("Monto adeudado ($)", min_value=0.0)
+            if st.form_submit_button("Guardar Crédito"):
+                nuevo_c = pd.DataFrame([{"Cliente": cliente, "Saldo pendiente": saldo}])
+                df_c = pd.concat([df_c, nuevo_c], ignore_index=True)
+                conn.update(worksheet="Creditos", data=df_c)
+                st.success(f"Crédito para {cliente} registrado."); st.rerun()
 
 # --- 4. REGISTRO DE CAJA ---
 elif mod == "📝 Registro de Caja":
-    st.header("Movimientos")
+    st.header("Registro de Ingresos y Gastos")
     st.dataframe(df_m, use_container_width=True)
-    with st.form("reg_form"):
-        tipo = st.selectbox("Tipo", ["Ingreso", "Gasto"])
-        monto = st.number_input("Monto")
-        if st.form_submit_button("Guardar"):
-            nuevo = pd.DataFrame([{"Fecha":str(pd.Timestamp.now().date()), "Tipo":tipo, "Monto":monto}])
+    with st.form("reg_form", clear_on_submit=True):
+        col_f1, col_f2 = st.columns(2)
+        tipo = col_f1.selectbox("Tipo", ["Ingreso", "Gasto"])
+        monto = col_f2.number_input("Monto ($)", min_value=0.0)
+        cat = col_f1.selectbox("Categoría", ["Venta Xvortice", "Ahorros", "Inversión Hapi", "Gasto Versa", "Comida", "Otros"])
+        nota = col_f2.text_input("Comentario / Nota")
+        if st.form_submit_button("Guardar Movimiento"):
+            nuevo = pd.DataFrame([{"Fecha":str(pd.Timestamp.now().date()), "Tipo":tipo, "Categoria":cat, "Monto":monto, "Comentario":nota}])
             conn.update(worksheet="Movimientos", data=pd.concat([df_m, nuevo], ignore_index=True))
-            st.rerun()
+            st.success("Movimiento guardado."); st.rerun()
 
 # --- 5. PROYECCIÓN ---
 elif mod == "🚀 Proyección":
@@ -119,7 +132,6 @@ elif mod == "🚀 Proyección":
     n = 12 
     t = anios
     pmt = aporte_mensual
-    
     monto_final = cap_inicial * (1 + r/n)**(n*t) + pmt * (((1 + r/n)**(n*t) - 1) / (r/n))
     
     st.markdown("---")
