@@ -7,7 +7,7 @@ import yfinance as yf
 st.set_page_config(page_title="Xvortice Executive", layout="wide", page_icon="🏛️")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# TTL=1 para que lea tus decimales de Google Sheets de una vez
+# TTL=1 permite que la App lea cambios del Excel casi al instante
 @st.cache_data(ttl=1)
 def cargar(hoja):
     try: 
@@ -15,6 +15,7 @@ def cargar(hoja):
     except: 
         return pd.DataFrame()
 
+# Obtiene precios reales de la bolsa (Yahoo Finance)
 @st.cache_data(ttl=600)
 def precios_vivos(ticks):
     p_dict = {}
@@ -26,7 +27,7 @@ def precios_vivos(ticks):
             p_dict[t] = None
     return p_dict
 
-# Carga de las 3 hojas principales
+# Carga de las hojas del Excel de Daniel
 df_m = cargar("Movimientos")
 df_p = cargar("Portafolio")
 df_c = cargar("Creditos")
@@ -36,7 +37,7 @@ st.sidebar.title("🏛️ Xvortice Corp")
 meta = st.sidebar.number_input("🎯 Meta Patrimonio ($)", value=10000, step=500)
 mod = st.sidebar.selectbox("Módulo:", ["Estado Patrimonial", "Registro", "Inversiones", "Créditos", "Proyección"])
 
-# --- 1. ESTADO PATRIMONIAL + ANALISTA IA ---
+# --- 1. ESTADO PATRIMONIAL ---
 if mod == "Estado Patrimonial":
     st.header("📊 Patrimonio Real")
     df_m['Monto'] = pd.to_numeric(df_m['Monto'], errors='coerce').fillna(0)
@@ -47,7 +48,7 @@ if mod == "Estado Patrimonial":
         tk_list = df_p['Ticker'].dropna().unique().tolist()
         v_dict = precios_vivos(tk_list)
         df_p['Live'] = df_p['Ticker'].map(v_dict)
-        # Multiplicación de precisión para decimales de Hapi
+        # Multiplicación exacta usando los decimales de tu Excel
         v_inv = (pd.to_numeric(df_p['Cantidad']) * df_p['Live'].fillna(0)).sum()
 
     total = cash + v_inv
@@ -60,11 +61,11 @@ if mod == "Estado Patrimonial":
     st.markdown("---")
     st.subheader("🤖 Analista IA Xvortice")
     if total < meta:
-        st.warning(f"Daniel, faltan ${meta-total:,.2f} para tu objetivo de $10k. El portafolio hoy aporta ${v_inv:,.2f}.")
+        st.warning(f"Daniel, faltan ${meta-total:,.2f} para tu meta. Tu portafolio en Hapi vale ${v_inv:,.2f} hoy.")
     else:
-        st.success("¡Meta superada! Es momento de fijar los $20,000.")
+        st.success("¡Meta de $10,000 alcanzada! Xvortice sigue creciendo.")
 
-# --- 2. REGISTRO (INGRESOS Y GASTOS SEPARADOS) ---
+# --- 2. REGISTRO ---
 elif mod == "Registro":
     st.header("📝 Gestión de Movimientos")
     i_tab, g_tab = st.tabs(["💰 Ingresos", "💸 Gastos"])
@@ -91,17 +92,17 @@ elif mod == "Registro":
                 st.cache_data.clear()
                 st.rerun()
 
-# --- 3. INVERSIONES (TICKER, NOMBRE, CANTIDAD, PRECIO, PROMEDIO) ---
+# --- 3. INVERSIONES ---
 elif mod == "Inversiones":
     st.header("📈 Portafolio Hapi")
     with st.expander("➕ Añadir Activo"):
         with st.form("fp"):
             c1, c2 = st.columns(2)
-            tk = c1.text_input("Ticker")
-            nm = c2.text_input("Nombre")
+            tk = c1.text_input("Ticker (Ej: VOO)")
+            nm = c2.text_input("Nombre (Ej: Vanguard S&P 500)")
             ct = c1.number_input("Cantidad", step=0.00001, format="%.5f")
-            pc = c2.number_input("Precio Compra")
-            cp = c1.number_input("Costo Promedio")
+            pc = c2.number_input("Precio Compra Unitario")
+            cp = c1.number_input("Costo Promedio Unitario")
             if st.form_submit_button("Añadir a Bolsa"):
                 new = pd.DataFrame([{"Ticker":tk.upper(),"Nombre":nm,"Cantidad":ct,"Precio de Compra":pc,"Costo Promedio":cp}])
                 conn.update(worksheet="Portafolio", data=pd.concat([df_p, new], ignore_index=True))
@@ -128,5 +129,5 @@ elif mod == "Proyección":
     st.header("📈 Interés Compuesto")
     cap = st.number_input("Capital Inicial", value=4000.0)
     años = st.slider("Años", 1, 30, 10)
-    proyeccion = cap * (1.10**años)
-    st.success(f"### Estimación (10% anual): ${proyeccion:,.2f}")
+    resultado = cap * (1.10**años)
+    st.success(f"### Estimación (10% anual): ${resultado:,.2f}")
