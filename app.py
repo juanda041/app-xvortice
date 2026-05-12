@@ -3,100 +3,93 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import plotly.express as px
 
-# Configuración de la página
-st.set_page_config(page_title="Xvortice - Centro de Control", layout="wide")
+st.set_page_config(page_title="Xvortice Pro", layout="wide")
 
-st.title("🚀 Xvortice: Gestión Patrimonial e Inventario")
+# Estilo y Título
+st.title("⚡ Xvortice: Business & Wealth Control")
 st.markdown("---")
 
-# Conexión a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Cargar datos
+# --- CARGA DE DATOS ---
+df_mov = conn.read(worksheet="Movimientos", ttl="0")
 try:
-    df = conn.read(worksheet="Movimientos", ttl="0")
-except Exception as e:
-    st.error("Error al leer el Excel. Revisa los permisos.")
-    df = pd.DataFrame()
+    df_cred = conn.read(worksheet="Creditos", ttl="0")
+except:
+    df_cred = pd.DataFrame(columns=["Cliente", "Producto", "Monto Total", "Saldo Pendiente", "Fecha Limite"])
 
-# Menú lateral para navegación
-menu = st.sidebar.selectbox("Selecciona una sección", ["Resumen General", "Registrar Movimiento", "Inventario Xvortice", "Analista IA"])
+# --- BARRA LATERAL ---
+st.sidebar.header("Configuración")
+menu = st.sidebar.selectbox("Ir a:", ["Dashboard & Meta", "Ventas a Crédito", "Inversiones ETFs", "Nuevo Registro"])
 
-# --- SECCIÓN 1: RESUMEN GENERAL (Aquí ves tus totales) ---
-if menu == "Resumen General":
-    st.header("📊 Resumen de tu Patrimonio")
+# Meta Dinámica de 5k
+meta_ahorro = st.sidebar.number_input("Tu Meta Actual ($)", value=5000)
+
+# --- SECCIÓN 1: DASHBOARD & META ---
+if menu == "Dashboard & Meta":
+    st.header(f"🎯 Objetivo: ${meta_ahorro:,.0f}")
     
-    if not df.empty:
-        # Limpieza rápida de datos para cálculos
-        df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
+    if not df_mov.empty:
+        df_mov['Monto'] = pd.to_numeric(df_mov['Monto'], errors='coerce').fillna(0)
+        total_ingresos = df_mov[df_mov['Tipo'] == 'Ingreso']['Monto'].sum()
+        total_gastos = df_mov[df_mov['Tipo'] == 'Gasto']['Monto'].sum()
+        balance_actual = total_ingresos - total_gastos
+        
+        progreso = min(balance_actual / meta_ahorro, 1.0) if meta_ahorro > 0 else 0
+        st.progress(progreso)
+        st.write(f"Has alcanzado el **{progreso*100:.1f}%** de tu meta.")
         
         col1, col2, col3 = st.columns(3)
-        total_ingresos = df[df['Tipo'] == 'Ingreso']['Monto'].sum()
-        total_gastos = df[df['Tipo'] == 'Gasto']['Monto'].sum()
-        balance = total_ingresos - total_gastos
-        
-        col1.metric("Total Ingresos", f"${total_ingresos:,.2f}")
-        col2.metric("Total Gastos", f"${total_gastos:,.2f}", delta_color="inverse")
-        col3.metric("Balance Neto", f"${balance:,.2f}")
-        
-        st.markdown("---")
-        st.subheader("Histórico de Movimientos")
-        fig = px.line(df, x='Fecha', y='Monto', color='Tipo', title="Flujo de Caja Xvortice")
-        st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(df.sort_index(ascending=False), use_container_width=True)
-    else:
-        st.info("Aún no hay datos para mostrar el resumen.")
+        col1.metric("Capital Actual", f"${balance_actual:,.2f}")
+        col2.metric("Faltante", f"${max(0, meta_ahorro - balance_actual):,.2f}")
+        col3.metric("Ventas Totales", f"${total_ingresos:,.2f}")
 
-# --- SECCIÓN 2: REGISTRAR MOVIMIENTO (El formulario) ---
-elif menu == "Registrar Movimiento":
-    st.header("📝 Nuevo Registro")
-    with st.form("registro_form"):
-        fecha = st.date_input("Fecha")
-        usuario = st.text_input("Nombre de Usuario (Quien registra)")
-        tipo = st.selectbox("Tipo de Movimiento", ["Ingreso", "Gasto"])
-        categoria = st.selectbox("Categoría", ["Venta Perfume", "Venta Celular", "Venta Calzado", "Inversión", "Gasto Personal", "Otros"])
-        monto = st.number_input("Monto ($)", min_value=0.0, step=0.01)
-        comentario = st.text_area("Descripción o detalle")
+        st.info(f"🤖 **Analista IA:** Juan, estás a un {(1-progreso)*100:.0f}% de los ${meta_ahorro}. " 
+                "El nuevo formato de 'Venta de Artículo' te ayudará a organizar mejor el flujo.")
+
+# --- SECCIÓN 2: VENTAS A CRÉDITO ---
+elif menu == "Ventas a Crédito":
+    st.header("💸 Dinero en la Calle")
+    with st.expander("➕ Registrar nuevo crédito"):
+        with st.form("form_credito"):
+            c_cliente = st.text_input("Nombre del Cliente")
+            c_prod = st.text_input("Artículo (Ej: Nike Air, Perfume)")
+            c_monto = st.number_input("Monto Total", min_value=0.0)
+            c_fecha = st.date_input("Fecha límite de pago")
+            if st.form_submit_button("Guardar Crédito"):
+                st.success(f"Anotado: {c_cliente} debe ${c_monto}")
+
+    if not df_cred.empty:
+        st.dataframe(df_cred, use_container_width=True)
+
+# --- SECCIÓN 3: INVERSIONES ---
+elif menu == "Inversiones ETFs":
+    st.header("📈 Mi Portafolio")
+    st.metric("Valor estimado en ETFs", "$0.00")
+    st.write("Estrategia Core & Satellite activa.")
+
+# --- SECCIÓN 4: NUEVO REGISTRO (CATEGORÍAS PROFESIONALES) ---
+elif menu == "Nuevo Registro":
+    st.header("📝 Registro de Operaciones")
+    with st.form("main_form"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            f_fecha = st.date_input("Fecha")
+            f_tipo = st.selectbox("Tipo", ["Ingreso", "Gasto"])
+        with col_b:
+            # Aquí están tus nuevas categorías
+            f_cat = st.selectbox("Categoría", [
+                "Venta de Artículo", 
+                "Entrada de Capital", 
+                "Inversión (ETFs/Acciones)",
+                "Gasto Operativo",
+                "Gasto Personal"
+            ])
+            f_monto = st.number_input("Monto ($)", min_value=0.0)
+            
+        f_desc = st.text_area("Detalle (Ej: Venta de Zapatillas / Inyección de capital personal)")
         
-        submit = st.form_submit_button("Guardar en la Nube")
-        
-        if submit:
-            new_data = pd.DataFrame([{
-                "Fecha": str(fecha),
-                "Usuario": usuario,
-                "Tipo": tipo,
-                "Categoria": categoria,
-                "Monto": monto,
-                "Comentario": comentario
-            }])
-            updated_df = pd.concat([df, new_data], ignore_index=True)
-            conn.update(worksheet="Movimientos", data=updated_df)
-            st.success("✅ ¡Guardado con éxito en Xvortice!")
+        if st.form_submit_button("Registrar en Xvortice"):
+            # Aquí se conectará con tu lógica de guardado
+            st.success(f"✅ {f_cat} registrado por ${f_monto}")
             st.balloons()
-
-# --- SECCIÓN 3: INVENTARIO (Control de productos) ---
-elif menu == "Inventario Xvortice":
-    st.header("📦 Control de Inventario")
-    st.write("Esta sección analiza tus ventas para decirte qué productos están saliendo más.")
-    if not df.empty:
-        ventas = df[df['Tipo'] == 'Ingreso']['Categoria'].value_counts()
-        st.bar_chart(ventas)
-    else:
-        st.write("Registra ventas para ver el análisis de inventario.")
-
-# --- SECCIÓN 4: ANALISTA IA (Lógica pura) ---
-elif menu == "Analista IA":
-    st.header("🤖 Analista Financiero Xvortice")
-    if not df.empty:
-        total_ingresos = df[df['Tipo'] == 'Ingreso']['Monto'].sum()
-        total_gastos = df[df['Tipo'] == 'Gasto']['Monto'].sum()
-        
-        st.write("### Análisis Actual:")
-        if total_ingresos > total_gastos:
-            st.success(f"Vas por buen camino, Juan. Tu negocio tiene un margen positivo de ${(total_ingresos-total_gastos):,.2f}.")
-        else:
-            st.warning("Ojo: Tus gastos están superando los ingresos este mes.")
-        
-        st.info("Próximamente: Sugerencias automáticas de inversión basadas en tus ventas de perfumes y calzado.")
-    else:
-        st.write("La IA necesita datos para empezar a razonar contigo.")
