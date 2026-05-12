@@ -18,6 +18,8 @@ def cargar(hoja):
 def precios_vivos(ticks):
     p_dict = {}
     for t in ticks:
+        if str(t).upper() == "CASH":
+            continue
         try:
             val = yf.Ticker(str(t).strip().upper()).history(period="1d")['Close'].iloc[-1]
             p_dict[t] = val
@@ -39,37 +41,47 @@ mod = st.sidebar.selectbox("Módulo:", ["Estado Patrimonial", "Registro", "Inver
 if mod == "Estado Patrimonial":
     st.header("📊 Patrimonio Real")
     df_m['Monto'] = pd.to_numeric(df_m['Monto'], errors='coerce').fillna(0)
-    cash = df_m[df_m['Tipo']=='Ingreso']['Monto'].sum() - df_m[df_m['Tipo']=='Gasto']['Monto'].sum()
+    # Efectivo externo (el que anotas en el Registro)
+    cash_mov = df_m[df_m['Tipo']=='Ingreso']['Monto'].sum() - df_m[df_m['Tipo']=='Gasto']['Monto'].sum()
     
     v_inv = 0
+    cash_hapi = 0
+    
     if not df_p.empty:
-        tk_list = df_p['Ticker'].dropna().unique().tolist()
+        # SEPARACIÓN: Acciones vs Efectivo en Portafolio
+        df_acciones = df_p[df_p['Ticker'] != 'CASH'].copy()
+        df_efectivo = df_p[df_p['Ticker'] == 'CASH'].copy()
+        
+        # 1. Valor de Acciones en Vivo
+        tk_list = df_acciones['Ticker'].dropna().unique().tolist()
         v_dict = precios_vivos(tk_list)
-        df_p['Live'] = df_p['Ticker'].map(v_dict)
-        # Cálculo de valor por cada ticker
-        df_p['Valor_Actual'] = pd.to_numeric(df_p['Cantidad']) * df_p['Live'].fillna(0)
-        v_inv = df_p['Valor_Actual'].sum()
+        df_acciones['Live'] = df_acciones['Ticker'].map(v_dict)
+        v_acciones = (pd.to_numeric(df_acciones['Cantidad']) * df_acciones['Live'].fillna(0)).sum()
+        
+        # 2. Valor de la Liquidez en Hapi
+        cash_hapi = pd.to_numeric(df_efectivo['Cantidad']).sum()
+        
+        # Bolsa Live total (Acciones + Cash de Hapi)
+        v_inv = v_acciones + cash_hapi
 
-    total = cash + v_inv
+    total = cash_mov + v_inv
     col1, col2, col3 = st.columns(3)
-    col1.metric("Efectivo", f"${cash:,.2f}")
-    col2.metric("Bolsa Live", f"${v_inv:,.2f}")
+    col1.metric("Efectivo (Otros)", f"${cash_mov:,.2f}")
+    col2.metric("Bolsa + Liquidez", f"${v_inv:,.2f}")
     col3.metric("TOTAL NETO", f"${total:,.2f}")
     st.progress(min(total/meta, 1.0) if meta > 0 else 0)
     
-    # TABLA DE VERIFICACIÓN PARA DANIEL
     st.markdown("---")
-    st.subheader("🔍 Verificación de Precios (Bolsa vs Hapi)")
+    st.subheader("🔍 Desglose de Inversiones")
     if not df_p.empty:
-        st.write("Compara la columna 'Live' con el precio actual de Hapi:")
-        st.dataframe(df_p[['Ticker', 'Cantidad', 'Live', 'Valor_Actual']], use_container_width=True)
+        st.dataframe(df_p[['Ticker', 'Nombre', 'Cantidad']], use_container_width=True)
     
     st.markdown("---")
     st.subheader("🤖 Analista IA Xvortice")
     if total < meta:
-        st.warning(f"Daniel, faltan ${meta-total:,.2f} para tu meta de $10k.")
+        st.warning(f"Daniel, faltan ${meta-total:,.2f} para tu meta de $10k. Xvortice sigue en marcha.")
     else:
-        st.success("¡Meta superada! Xvortice está en la cima.")
+        st.success("¡Meta superada! Es momento de escalar el capital.")
 
 # --- 2. REGISTRO ---
 elif mod == "Registro":
@@ -80,7 +92,7 @@ elif mod == "Registro":
             c = st.selectbox("Categoría", ["Ahorros", "Bonos", "Venta Xvortice", "Capital"])
             m = st.number_input("Monto ($)", min_value=0.0)
             n = st.text_input("Nota")
-            if st.form_submit_button("Guardar Ingreso"):
+            if st.form_submit_button("Guardar"):
                 new = pd.DataFrame([{"Fecha":str(pd.Timestamp.now().date()),"Tipo":"Ingreso","Categoria":c,"Monto":m,"Comentario":n}])
                 conn.update(worksheet="Movimientos", data=pd.concat([df_m, new], ignore_index=True))
                 st.cache_data.clear()
@@ -90,7 +102,7 @@ elif mod == "Registro":
             c = st.selectbox("Categoría", ["Versa", "Comida", "Hapi", "Gastos Operativos", "Otros Gastos"])
             m = st.number_input("Monto ($)", min_value=0.0)
             n = st.text_input("Nota")
-            if st.form_submit_button("Guardar Gasto"):
+            if st.form_submit_button("Guardar"):
                 new = pd.DataFrame([{"Fecha":str(pd.Timestamp.now().date()),"Tipo":"Gasto","Categoria":c,"Monto":m,"Comentario":n}])
                 conn.update(worksheet="Movimientos", data=pd.concat([df_m, new], ignore_index=True))
                 st.cache_data.clear()
@@ -99,15 +111,15 @@ elif mod == "Registro":
 # --- 3. INVERSIONES ---
 elif mod == "Inversiones":
     st.header("📈 Portafolio Hapi")
-    with st.expander("➕ Añadir Activo"):
+    with st.expander("➕ Añadir Activo / Cash"):
         with st.form("fp"):
             c1, c2 = st.columns(2)
-            tk = c1.text_input("Ticker (Ej: VOO)")
-            nm = c2.text_input("Nombre (Ej: Vanguard S&P 500)")
+            tk = c1.text_input("Ticker (Usa 'CASH' para liquidez)")
+            nm = c2.text_input("Nombre")
             ct = c1.number_input("Cantidad", step=0.00001, format="%.5f")
-            pc = c2.number_input("Precio Compra Unitario")
-            cp = c1.number_input("Costo Promedio Unitario")
-            if st.form_submit_button("Añadir a Bolsa"):
+            pc = c2.number_input("Precio Compra")
+            cp = c1.number_input("Costo Promedio")
+            if st.form_submit_button("Actualizar Bolsa"):
                 new = pd.DataFrame([{"Ticker":tk.upper(),"Nombre":nm,"Cantidad":ct,"Precio de Compra":pc,"Costo Promedio":cp}])
                 conn.update(worksheet="Portafolio", data=pd.concat([df_p, new], ignore_index=True))
                 st.cache_data.clear()
@@ -131,7 +143,7 @@ elif mod == "Créditos":
 # --- 5. PROYECCIÓN ---
 elif mod == "Proyección":
     st.header("📈 Interés Compuesto")
-    cap = st.number_input("Capital Inicial", value=4000.0)
+    cap = st.number_input("Capital Inicial", value=total if 'total' in locals() else 4000.0)
     años = st.slider("Años", 1, 30, 10)
-    resultado = cap * (1.10**años)
-    st.success(f"### Estimación (10% anual): ${resultado:,.2f}")
+    res = cap * (1.10**años)
+    st.success(f"### Estimación (10% anual): ${res:,.2f}")
