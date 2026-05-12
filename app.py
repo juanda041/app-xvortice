@@ -3,10 +3,10 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import yfinance as yf
 
-# --- 1. CONFIGURACIÓN ---
+# --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Xvortice Executive", layout="wide", page_icon="🏛️")
 
-# --- 2. CONEXIÓN Y CARGA ---
+# --- 2. CONEXIÓN Y CARGA DE DATOS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=300)
@@ -28,6 +28,7 @@ def obtener_precios_vivos(tickers):
             precios[t] = None
     return precios
 
+# Carga global de hojas
 df_mov = cargar_datos("Movimientos")
 df_port = cargar_datos("Portafolio")
 df_cred = cargar_datos("Creditos")
@@ -37,21 +38,19 @@ st.sidebar.title("🏛️ Xvortice Corp")
 st.sidebar.markdown("---")
 meta_ahorro = st.sidebar.number_input("🎯 Meta de Patrimonio ($)", value=5000, step=500)
 menu = st.sidebar.selectbox("Módulo:", 
-    ["Estado Patrimonial", "Inversiones", "Gestión de Créditos", "Registro de Operaciones", "Interés Compuesto"])
+    ["Estado Patrimonial", "Registro de Operaciones", "Inversiones", "Gestión de Créditos", "Interés Compuesto"])
 
 # --- 4. LÓGICA DE MÓDULOS ---
 
-# --- ESTADO PATRIMONIAL (CON IA) ---
+# --- MÓDULO 1: ESTADO PATRIMONIAL (CON ANALISTA IA) ---
 if menu == "Estado Patrimonial":
-    st.header("📊 Resumen de Capital")
+    st.header("📊 Patrimonio Real (Efectivo + Bolsa)")
     
     # Cálculo Efectivo
     df_mov['Monto'] = pd.to_numeric(df_mov['Monto'], errors='coerce').fillna(0)
-    ingresos = df_mov[df_mov['Tipo'] == 'Ingreso']['Monto'].sum()
-    gastos = df_mov[df_mov['Tipo'] == 'Gasto']['Monto'].sum()
-    efectivo = ingresos - gastos
+    efectivo = df_mov[df_mov['Tipo'] == 'Ingreso']['Monto'].sum() - df_mov[df_mov['Tipo'] == 'Gasto']['Monto'].sum()
     
-    # Cálculo Inversiones
+    # Cálculo Inversiones Live
     valor_inv = 0
     if not df_port.empty:
         t_list = df_port['Ticker'].unique().tolist()
@@ -61,74 +60,37 @@ if menu == "Estado Patrimonial":
 
     cap_total = efectivo + valor_inv
     
-    c1, c2 = st.columns(2)
-    c1.metric("Capital Neto Real", f"${cap_total:,.2f}")
-    c2.metric("Meta 2026", f"${meta_ahorro:,.2f}")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Ahorros (Cash)", f"${efectivo:,.2f}")
+    c2.metric("Portafolio Live", f"${valor_inv:,.2f}")
+    c3.metric("PATRIMONIO TOTAL", f"${cap_total:,.2f}", delta=f"{cap_total - meta_ahorro:,.2f} vs Meta")
+    
     st.progress(min(cap_total/meta_ahorro, 1.0) if meta_ahorro > 0 else 0)
 
-    # --- 🤖 ANALISTA IA ---
     st.markdown("---")
     st.subheader("🤖 Analista IA Xvortice")
-    if cap_total >= meta_ahorro:
-        st.success(f"¡Meta de ${meta_ahorro:,.0f} alcanzada! Vamos por el siguiente nivel.")
+    if cap_total < meta_ahorro:
+        st.warning(f"Juan, estás al **{cap_total/meta_ahorro*100:.1f}%** de tu meta de ${meta_ahorro:,.0f}. El mercado dice que tu portafolio vale ${valor_inv:,.2f}. ¡Sigue así!")
     else:
-        st.warning(f"Faltan ${meta_ahorro - cap_total:,.2f} para la meta. ¡Sigue así!")
+        st.success(f"¡Meta superada! Patrimonio consolidado: **${cap_total:,.2f}**. Estrategia sugerida: Rebalanceo y aumento de meta a $10,000.")
 
-# --- INVERSIONES ---
-elif menu == "Inversiones":
-    st.header("📈 Portafolio Hapi")
-    with st.expander("➕ Añadir compra", expanded=False):
-        with st.form("f_inv"):
-            f_tick = st.text_input("Ticker (Ej: VOO)")
-            f_cant = st.number_input("Cantidad", step=0.0001)
-            f_p_compra = st.number_input("Precio de Compra")
-            if st.form_submit_button("Guardar"):
-                nueva = pd.DataFrame([{"Ticker": f_tick.upper(), "Cantidad": f_cant, "Precio de Compra": f_p_compra}])
-                df_up = pd.concat([df_port, nueva], ignore_index=True)
-                conn.update(worksheet="Portafolio", data=df_up)
-                st.cache_data.clear()
-                st.rerun()
-    st.dataframe(df_port, use_container_width=True)
-
-# --- GESTIÓN DE CRÉDITOS ---
-elif menu == "Gestión de Créditos":
-    st.header("💸 Créditos por Cobrar")
-    st.dataframe(df_cred, use_container_width=True)
-
-# --- REGISTRO DE OPERACIONES (CAMBIO AQUÍ) ---
+# --- MÓDULO 2: REGISTRO SEPARADO (INGRESOS vs GASTOS) ---
 elif menu == "Registro de Operaciones":
-    st.header("📝 Registro de Ingresos/Gastos")
-    with st.form("form_mov_v45"):
-        f_tipo = st.selectbox("Tipo", ["Ingreso", "Gasto"])
-        # Aquí añadimos las categorías que faltaban
-        f_cat = st.selectbox("Categoría", [
-            "Ahorros", 
-            "Bonos", 
-            "Versa", 
-            "Comida", 
-            "Hapi", 
-            "Gastos Operativos", 
-            "Otros Gastos"
-        ])
-        f_monto = st.number_input("Monto ($)", min_value=0.0)
-        f_comentario = st.text_input("Comentario (Opcional)")
-        
-        if st.form_submit_button("Guardar en Excel"):
-            n_m = pd.DataFrame([{
-                "Fecha": str(pd.Timestamp.now().date()), 
-                "Tipo": f_tipo, 
-                "Categoria": f_cat, 
-                "Monto": f_monto,
-                "Comentario": f_comentario
-            }])
-            df_up_m = pd.concat([df_mov, n_m], ignore_index=True)
-            conn.update(worksheet="Movimientos", data=df_up_m)
-            st.cache_data.clear()
-            st.success(f"✅ Registrado como {f_cat}")
+    st.header("📝 Gestión de Movimientos")
+    tab1, tab2 = st.tabs(["💰 Registrar Ingreso", "💸 Registrar Gasto"])
+    
+    with tab1:
+        with st.form("form_ingresos"):
+            f_cat_i = st.selectbox("Categoría", ["Ahorros", "Bonos", "Venta Xvortice", "Entrada de Capital"])
+            f_monto_i = st.number_input("Monto ($)", min_value=0.0)
+            f_nota_i = st.text_input("Nota")
+            if st.form_submit_button("Guardar Ingreso"):
+                n_i = pd.DataFrame([{"Fecha": str(pd.Timestamp.now().date()), "Tipo": "Ingreso", "Categoria": f_cat_i, "Monto": f_monto_i, "Comentario": f_nota_i}])
+                conn.update(worksheet="Movimientos", data=pd.concat([df_mov, n_i], ignore_index=True))
+                st.cache_data.clear()
+                st.success("Ingreso registrado.")
 
-# --- INTERÉS COMPUESTO ---
-elif menu == "Interés Compuesto":
-    st.header("📈 Proyección")
-    p = st.number_input("Capital Inicial", value=4000.0)
-    t = st.slider("Años", 1, 30, 10)
-    st.write(f"Resultado estimado: **${p * (1.10**t):,.2f}**")
+    with tab2:
+        with st.form("form_gastos"):
+            f_cat_g = st.selectbox("Categoría", ["Versa", "Comida", "Hapi (Inversión)", "Gastos Operativos", "Otros Gastos"])
+            f_monto_g = st.number_input("Monto ($)", min_value=0
