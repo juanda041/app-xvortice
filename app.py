@@ -4,6 +4,7 @@ import pandas as pd
 import yfinance as yf
 import plotly.express as px
 import numpy as np
+from datetime import datetime
 
 # Configuración de nivel ejecutivo
 st.set_page_config(page_title="Xvortice Executive", layout="wide")
@@ -53,55 +54,30 @@ if menu == "Estado Patrimonial":
         st.subheader("🤖 Analista IA Xvortice")
         faltante = max(0, meta_ahorro - patrimonio_liquido)
         if progreso < 1.0:
-            st.info(f"Juan, vas por buen camino. Tu Reserva de Capital y ventas suman ${patrimonio_liquido:,.2f}. Faltan ${faltante:,.2f} para tu meta.")
+            st.info(f"Juan, vas por buen camino. Faltan ${faltante:,.2f} para tu meta de ${meta_ahorro}.")
         else:
-            st.success(f"¡Meta alcanzada! Tienes ${patrimonio_liquido:,.2f}. Es momento de ejecutar el plan de inversión a largo plazo.")
+            st.success("¡Meta alcanzada!")
 
 # --- 2. GESTIÓN DE CRÉDITOS ---
 elif menu == "Gestión de Créditos":
-    st.header("💸 Cuentas Activas (Capital en Circulación)")
-    with st.expander("➕ Apertura de Nuevo Crédito"):
-        with st.form("form_cred"):
-            c_cliente = st.text_input("Nombre del Deudor")
-            c_prod = st.text_input("Activo Entregado")
-            c_monto = st.number_input("Monto de la Deuda", min_value=0.0)
-            c_fecha = st.date_input("Vencimiento")
-            if st.form_submit_button("Sincronizar Crédito"):
-                nuevo_c = pd.DataFrame([{"Cliente": c_cliente, "Producto": c_prod, "Monto Total": c_monto, "Saldo Pendiente": c_monto, "Fecha Limite": str(c_fecha)}])
-                df_up_c = pd.concat([df_cred, nuevo_c], ignore_index=True)
-                conn.update(worksheet="Creditos", data=df_up_c)
-                st.success("Crédito registrado.")
+    st.header("💸 Cuentas Activas")
     if not df_cred.empty: st.table(df_cred)
 
-# --- 3. CARTERA DE INVERSIONES (LIVE) ---
+# --- 3. CARTERA DE INVERSIONES ---
 elif menu == "Cartera de Inversiones":
-    st.header("📈 Rendimiento de Capital en Bolsa")
-    with st.expander("➕ Agregar Acción"):
-        with st.form("form_inv"):
-            t_ticker = st.text_input("Ticker (Ej: VOO)").upper()
-            t_cant = st.number_input("Cantidad", min_value=0.0)
-            t_pago = st.number_input("Precio Compra", min_value=0.0)
-            if st.form_submit_button("Guardar Acción"):
-                n_acc = pd.DataFrame([{"Ticker": t_ticker, "Cantidad": t_cant, "Precio de Compra": t_pago}])
-                df_up_p = pd.concat([df_port, n_acc], ignore_index=True)
-                conn.update(worksheet="Portafolio", data=df_up_p)
-                st.success("Acción sincronizada.")
-    
+    st.header("📈 Cartera Live")
     if not df_port.empty:
         lista_f = []
-        total_inv = 0
         for i, row in df_port.iterrows():
             stock = yf.Ticker(row['Ticker'].strip())
             precio = stock.history(period="1d")['Close'].iloc[-1]
             valor = precio * row['Cantidad']
-            total_inv += valor
             lista_f.append({"Activo": row['Ticker'], "Valor": valor})
         df_fig = pd.DataFrame(lista_f)
-        fig = px.pie(df_fig, values='Valor', names='Activo', hole=0.5, title="Distribución de Portafolio")
+        fig = px.pie(df_fig, values='Valor', names='Activo', hole=0.5)
         st.plotly_chart(fig)
-        st.metric("TOTAL EN INVERSIONES", f"${total_inv:,.2f}")
 
-# --- 4. PROYECCIÓN DE RIQUEZA (CALCULADORA) ---
+# --- 4. PROYECCIÓN DE RIQUEZA (CORREGIDO) ---
 elif menu == "Proyección de Riqueza":
     st.header("⏳ Simulador de Interés Compuesto")
     col_inv1, col_inv2 = st.columns(2)
@@ -112,29 +88,40 @@ elif menu == "Proyección de Riqueza":
         tasa = st.slider("Interés Anual Esperado (%)", 1, 20, 10)
         tiempo = st.slider("Años a futuro", 1, 30, 10)
     
-    meses = tiempo * 12
+    meses_total = tiempo * 12
     t_mensual = (tasa / 100) / 12
+    
+    fechas = []
     valores = []
     actual = cap_ini
-    for m in range(meses):
+    fecha_actual = datetime.now()
+    
+    for m in range(meses_total):
         actual = (actual + aporte) * (1 + t_mensual)
         valores.append(actual)
+        # Generar lista de meses manualmente para evitar el error de Pandas
+        fechas.append(m) 
     
-    df_proy = pd.DataFrame({"Fecha": pd.date_range(start=pd.Timestamp.now(), periods=meses, freq='M'), "Capital": valores})
-    st.plotly_chart(px.area(df_proy, x="Fecha", y="Capital", title="Crecimiento de Xvortice"))
-    st.success(f"En {tiempo} años tendrías aprox. **${valores[-1]:,.2f}**")
+    df_proy = pd.DataFrame({"Mes": fechas, "Capital Estimado": valores})
+    
+    # Usamos el número de mes en el eje X para que sea infalible
+    fig_proy = px.area(df_proy, x="Mes", y="Capital Estimado", 
+                       title=f"Evolución del Capital en {tiempo} años",
+                       labels={"Mes": "Meses desde hoy"})
+    
+    st.plotly_chart(fig_proy, use_container_width=True)
+    st.success(f"En {tiempo} años, el patrimonio estimado de Xvortice sería: **${valores[-1]:,.2f}**")
 
 # --- 5. REGISTRO DE OPERACIONES ---
 elif menu == "Registro de Operaciones":
-    st.header("📝 Consignación de Movimientos")
+    st.header("📝 Nuevo Movimiento")
     with st.form("main_form"):
         f_fecha = st.date_input("Fecha")
         f_tipo = st.selectbox("Naturaleza", ["Ingreso", "Gasto"])
         f_cat = st.selectbox("Categoría", ["Venta de Artículo", "Reserva de Capital", "Entrada de Capital", "Inversión (ETFs)", "Gasto Operativo", "Gasto Personal"])
         f_monto = st.number_input("Monto ($)", min_value=0.0)
-        f_desc = st.text_area("Detalle")
         if st.form_submit_button("Sincronizar"):
-            n_mov = pd.DataFrame([{"Fecha": str(f_fecha), "Tipo": f_tipo, "Categoria": f_cat, "Monto": f_monto, "Detalle": f_desc}])
+            n_mov = pd.DataFrame([{"Fecha": str(f_fecha), "Tipo": f_tipo, "Categoria": f_cat, "Monto": f_monto}])
             df_up_m = pd.concat([df_mov, n_mov], ignore_index=True)
             conn.update(worksheet="Movimientos", data=df_up_m)
-            st.success("Movimiento guardado con éxito.")
+            st.success("Guardado.")
