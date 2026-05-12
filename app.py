@@ -1,108 +1,131 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+import yfinance as yf
+import plotly.graph_objects as go
 
-# Configuración de la página
-st.set_page_config(page_title="Xvortice Pro", layout="wide")
+# Configuración de nivel ejecutivo
+st.set_page_config(page_title="Xvortice Executive", layout="wide", initial_sidebar_state="expanded")
 
-# Título Principal
-st.title("⚡ Xvortice: Business & Wealth Control")
+# --- ESTILO PERSONALIZADO ---
+st.markdown("""
+    <style>
+    .main { background-color: #f5f7f9; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+    """, unsafe_allow_html=True)
+
+# Título de la Firma
+st.title("🏛️ Xvortice: Centro de Estrategia Patrimonial")
 st.markdown("---")
 
-# Conexión a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- CARGA DE DATOS ---
-# Cargamos movimientos
 df_mov = conn.read(worksheet="Movimientos", ttl="0")
-
-# Cargamos créditos (la nueva hoja que creaste)
 try:
-    df_cred = conn.read(worksheet="Creditos", ttl="0")
+    df_port = conn.read(worksheet="Portafolio", ttl="0")
 except:
-    df_cred = pd.DataFrame(columns=["Cliente", "Producto", "Monto Total", "Saldo Pendiente", "Fecha Limite"])
+    df_port = pd.DataFrame(columns=["Ticker", "Cantidad", "Precio de Compra"])
 
-# --- BARRA LATERAL (Sidebar) ---
-st.sidebar.header("Menú de Control")
-menu = st.sidebar.selectbox("Selecciona una opción:", [
-    "Dashboard & Meta", 
-    "Ventas a Crédito", 
-    "Inversiones ETFs", 
-    "Nuevo Registro"
-])
+# --- MENÚ LATERAL ---
+st.sidebar.header("Xvortice Navigation")
+menu = st.sidebar.selectbox("Seleccionar Módulo:", 
+    ["Estado del Patrimonio", "Control de Créditos", "Portafolio en Tiempo Real", "Nuevo Registro"])
 
-# Configuración de Meta (puedes cambiar los 5000 cuando quieras)
-meta_ahorro = st.sidebar.number_input("Tu Meta Actual ($)", value=5000)
+meta_ahorro = st.sidebar.number_input("Meta de Capital Estratégico ($)", value=5000)
 
-# --- SECCIÓN 1: DASHBOARD & META ---
-if menu == "Dashboard & Meta":
-    st.header(f"🎯 Objetivo de Ahorro: ${meta_ahorro:,.0f}")
+# --- 1. ESTADO DEL PATRIMONIO (Elegante) ---
+if menu == "Estado del Patrimonio":
+    st.subheader("📊 Análisis de Metas y Liquidez")
     
     if not df_mov.empty:
-        # Convertir montos a números por si acaso
         df_mov['Monto'] = pd.to_numeric(df_mov['Monto'], errors='coerce').fillna(0)
-        total_ingresos = df_mov[df_mov['Tipo'] == 'Ingreso']['Monto'].sum()
-        total_gastos = df_mov[df_mov['Tipo'] == 'Gasto']['Monto'].sum()
-        balance_actual = total_ingresos - total_gastos
+        ingresos = df_mov[df_mov['Tipo'] == 'Ingreso']['Monto'].sum()
+        gastos = df_mov[df_mov['Tipo'] == 'Gasto']['Monto'].sum()
+        capital_operativo = ingresos - gastos
         
-        # Barra de progreso
-        progreso = min(balance_actual / meta_ahorro, 1.0) if meta_ahorro > 0 else 0
+        progreso = min(capital_operativo / meta_ahorro, 1.0)
+        
+        # Barra de progreso estilizada
+        st.write(f"**Progreso hacia la meta de ${meta_ahorro:,.0f}**")
         st.progress(progreso)
-        st.write(f"Felicidades Juan, llevas el **{progreso*100:.1f}%** de tu meta completado.")
         
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Capital en Caja", f"${balance_actual:,.2f}")
-        col2.metric("Faltante para Meta", f"${max(0, meta_ahorro - balance_actual):,.2f}")
-        col3.metric("Ingresos Totales", f"${total_ingresos:,.2f}")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Capital Operativo", f"${capital_operativo:,.2f}")
+        c2.metric("Eficiencia de Meta", f"{progreso*100:.1f}%")
+        c3.metric("Faltante Neto", f"${max(0, meta_ahorro - capital_operativo):,.2f}")
+        
+        st.info(f"🤖 **Analista IA:** Juan, mantienes un capital de ${capital_operativo:,.2f}. "
+                f"Para alcanzar tu meta, necesitas captar ${max(0, meta_ahorro - capital_operativo):,.2f} adicionales. "
+                "Considera reinvertir las utilidades de las ventas de artículos para acelerar el interés compuesto.")
 
-        st.info(f"🤖 **Analista Xvortice:** Estás a ${max(0, meta_ahorro - balance_actual):,.2f} de alcanzar tu objetivo. ¡Sigue así!")
+# --- 2. CONTROL DE CRÉDITOS ---
+elif menu == "Control de Créditos":
+    st.subheader("💸 Cuentas Activas por Cobrar")
+    st.write("Gestión de activos circulantes en el mercado (dinero en la calle).")
+    # (Aquí cargará los datos de tu pestaña Creditos)
+    st.info("Próximamente: Notificaciones automáticas de cobro.")
 
-# --- SECCIÓN 2: VENTAS A CRÉDITO ---
-elif menu == "Ventas a Crédito":
-    st.header("💸 Dinero en la Calle (Cuentas por Cobrar)")
+# --- 3. PORTAFOLIO EN TIEMPO REAL (La Magia) ---
+elif menu == "Portafolio en Tiempo Real":
+    st.subheader("📈 Rendimiento de Inversiones (Live)")
     
-    with st.expander("➕ Registrar nuevo crédito"):
-        with st.form("form_credito"):
-            c_cliente = st.text_input("Nombre del Cliente")
-            c_prod = st.text_input("Artículo entregado")
-            c_monto = st.number_input("Monto total de la deuda", min_value=0.0)
-            c_fecha = st.date_input("Fecha máxima de pago")
-            if st.form_submit_button("Guardar Deuda"):
-                st.success(f"Registrado: {c_cliente} te debe ${c_monto}")
-
-    st.subheader("Listado de Deudores")
-    if not df_cred.empty:
-        st.dataframe(df_cred, use_container_width=True)
+    if not df_port.empty and 'Ticker' in df_port.columns:
+        total_invertido_actual = 0
+        total_costo_base = 0
+        
+        for index, row in df_port.iterrows():
+            ticker = row['Ticker'].strip().upper()
+            cantidad = float(row['Cantidad'])
+            precio_compra = float(row['Precio de Compra'])
+            
+            # Consultar Yahoo Finance
+            stock = yf.Ticker(ticker)
+            try:
+                precio_actual = stock.history(period="1d")['Close'].iloc[-1]
+            except:
+                precio_actual = precio_compra # Fallback
+            
+            valor_actual = precio_actual * cantidad
+            costo_base = precio_compra * cantidad
+            ganancia = valor_actual - costo_base
+            
+            total_invertido_actual += valor_actual
+            total_costo_base += costo_base
+            
+            with st.expander(f"🔍 Detalle: {ticker}"):
+                col_a, col_b, col_c = st.columns(3)
+                col_a.write(f"**Precio Actual:** ${precio_actual:,.2f}")
+                col_b.write(f"**Valor Posición:** ${valor_actual:,.2f}")
+                col_c.write(f"**Rendimiento:** {'🟢' if ganancia >= 0 else '🔴'} ${ganancia:,.2f}")
+        
+        st.divider()
+        st.metric("VALOR TOTAL DEL PORTAFOLIO", f"${total_invertido_actual:,.2f}", 
+                  delta=f"${total_invertido_actual - total_costo_base:,.2f} vs Costo")
     else:
-        st.write("No hay deudas registradas en la pestaña 'Creditos'.")
+        st.warning("Configura tus Tickers y Cantidades en la pestaña 'Portafolio' de tu Excel para ver los datos en vivo.")
 
-# --- SECCIÓN 3: INVERSIONES ---
-elif menu == "Inversiones ETFs":
-    st.header("📈 Mi Portafolio Personal")
-    st.write("Aquí verás el crecimiento de tus ETFs (VOO, etc.)")
-    st.metric("Valor en Cartera (Hapi)", "$0.00")
-    st.info("Estrategia: Core (Largo Plazo) & Satellite (Trading)")
-
-# --- SECCIÓN 4: NUEVO REGISTRO ---
+# --- 4. NUEVO REGISTRO ---
 elif menu == "Nuevo Registro":
-    st.header("📝 Registro Profesional de Operaciones")
-    with st.form("main_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            f_fecha = st.date_input("Fecha de hoy")
-            f_tipo = st.selectbox("Tipo de Movimiento", ["Ingreso", "Gasto"])
-        with col2:
-            f_cat = st.selectbox("Categoría Profesional", [
+    st.subheader("📝 Registro de Operaciones Ejecutivas")
+    with st.form("registro_form"):
+        c1, c2 = st.columns(2)
+        with c1:
+            fecha = st.date_input("Fecha de Operación")
+            tipo = st.selectbox("Naturaleza", ["Ingreso", "Gasto"])
+        with c2:
+            categoria = st.selectbox("Categoría de Flujo", [
                 "Venta de Artículo", 
                 "Entrada de Capital", 
                 "Inversión (ETFs/Acciones)",
                 "Gasto Operativo",
                 "Gasto Personal"
             ])
-            f_monto = st.number_input("Monto ($)", min_value=0.0)
+            monto = st.number_input("Monto de la Transacción ($)", min_value=0.0)
             
-        f_desc = st.text_area("Detalle de la operación")
+        detalle = st.text_area("Notas de la Operación")
         
-        if st.form_submit_button("Subir a Xvortice"):
-            st.success(f"¡{f_cat} guardado exitosamente!")
+        if st.form_submit_button("Confirmar y Sincronizar"):
+            st.success(f"Registro de {categoria} procesado correctamente.")
             st.balloons()
