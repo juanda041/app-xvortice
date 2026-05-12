@@ -23,8 +23,6 @@ df_cred = cargar_datos("Creditos")
 # --- 3. MENÚ LATERAL ---
 st.sidebar.title("🏛️ Xvortice Corp")
 st.sidebar.markdown("---")
-
-# Meta ajustable por el usuario
 st.sidebar.subheader("⚙️ Configuración")
 meta_ahorro = st.sidebar.number_input("Ajustar Meta de Patrimonio ($)", value=5000, step=500)
 
@@ -34,67 +32,91 @@ menu = st.sidebar.selectbox("Módulo:",
 
 # --- 4. LÓGICA DE MÓDULOS ---
 
-# --- MÓDULO 1: PATRIMONIO (SEPARADO Y CON IA) ---
+# --- MÓDULO 1: PATRIMONIO ---
 if menu == "Estado Patrimonial":
     st.header("📊 Análisis de Ingresos y Gastos")
-    
     if not df_mov.empty:
         df_mov['Monto'] = pd.to_numeric(df_mov['Monto'], errors='coerce').fillna(0)
-        
-        # Filtrado para cálculos
         df_ingresos = df_mov[df_mov['Tipo'] == 'Ingreso']
         df_gastos = df_mov[df_mov['Tipo'] == 'Gasto']
+        actual = df_ingresos['Monto'].sum() - df_gastos['Monto'].sum()
         
-        total_ingresos = df_ingresos['Monto'].sum()
-        total_gastos = df_gastos['Monto'].sum()
-        actual = total_ingresos - total_gastos
-        
-        # Métricas de resumen
         c1, c2, c3 = st.columns(3)
-        c1.metric("Ingresos (Suma)", f"${total_ingresos:,.2f}")
-        c2.metric("Gastos (Resta)", f"${total_gastos:,.2f}", delta=f"-${total_gastos:,.2f}", delta_color="inverse")
-        c3.metric("Capital Neto Real", f"${actual:,.2f}")
+        c1.metric("Ingresos", f"${df_ingresos['Monto'].sum():,.2f}")
+        c2.metric("Gastos", f"${df_gastos['Monto'].sum():,.2f}", delta_color="inverse")
+        c3.metric("Neto", f"${actual:,.2f}")
         
-        progreso = min(actual/meta_ahorro, 1.0) if meta_ahorro > 0 else 0
-        st.progress(progreso, text=f"Progreso hacia la meta de ${meta_ahorro:,.0f}: {progreso*100:.1f}%")
+        st.progress(min(actual/meta_ahorro, 1.0) if meta_ahorro > 0 else 0)
 
-        # --- VISTA EN DOS COLUMNAS ---
         st.markdown("---")
         col_izq, col_der = st.columns(2)
-        
         with col_izq:
-            st.subheader("💰 Entradas de Capital")
-            if not df_ingresos.empty:
-                cat_ing = 'Categoria' if 'Categoria' in df_ingresos.columns else 'Comentario'
-                res_ing = df_ingresos.groupby(cat_ing)['Monto'].sum()
-                st.bar_chart(res_ing, color="#28a745")
-                st.dataframe(df_ingresos, use_container_width=True)
-            else: st.info("No hay ingresos.")
-
+            st.subheader("💰 Entradas")
+            st.bar_chart(df_ingresos.groupby('Categoria')['Monto'].sum() if 'Categoria' in df_ingresos.columns else [])
         with col_der:
-            st.subheader("💸 Salidas y Gastos")
-            if not df_gastos.empty:
-                cat_gas = 'Categoria' if 'Categoria' in df_gastos.columns else 'Comentario'
-                res_gas = df_gastos.groupby(cat_gas)['Monto'].sum()
-                st.bar_chart(res_gas, color="#dc3545")
-                st.dataframe(df_gastos, use_container_width=True)
-            else: st.info("No hay gastos.")
+            st.subheader("💸 Salidas")
+            st.bar_chart(df_gastos.groupby('Categoria')['Monto'].sum() if 'Categoria' in df_gastos.columns else [])
 
-        # --- ANALISTA IA ---
-        st.markdown("---")
-        st.subheader("🤖 Analista IA Xvortice")
-        col_ia, col_tip = st.columns([2, 1])
-        with col_ia:
-            if actual < meta_ahorro:
-                st.warning(f"Juan, faltan ${meta_ahorro - actual:,.2f} para la meta. Tus ingresos son sólidos, pero vigila las salidas.")
-            else:
-                st.success(f"¡Felicidades! Meta de ${meta_ahorro:,.2f} superada. ¿Subimos el nivel?")
-        with col_tip:
-            consejos = ["Ahorra el 10% de cada bono.", "Revisa el costo promedio en Hapi.", "Controla los gastos del Versa."]
-            st.info(f"💡 **Tip:** {np.random.choice(consejos)}")
+        st.info(f"🤖 **Analista IA:** Juan, {'vas por buen camino' if actual > 0 else 'toca revisar los gastos'}.")
     else:
-        st.info("Registra tu primer movimiento para ver el análisis.")
+        st.info("Sin datos para analizar.")
 
 # --- MÓDULO 2: INTERÉS COMPUESTO ---
 elif menu == "Interés Compuesto":
-    st.header("📈 Simul
+    st.header("📈 Simulador de Crecimiento")
+    col1, col2 = st.columns(2)
+    cap_i = col1.number_input("Capital Inicial ($)", value=4000.0) 
+    aporte = col1.number_input("Aporte Mensual ($)", value=100.0)
+    años = col2.slider("Años", 1, 30, 10)
+    tasa = col2.slider("Tasa Anual (%)", 1, 15, 10) / 100
+    meses = años * 12
+    tasa_m = tasa / 12
+    final = cap_i * (1 + tasa_m)**meses + aporte * (((1 + tasa_m)**meses - 1) / tasa_m)
+    st.success(f"### Proyección: ${final:,.2f}")
+
+# --- MÓDULO 3: REGISTRO ---
+elif menu == "Registro de Operaciones":
+    st.header("📝 Nuevo Registro")
+    with st.form("f_reg"):
+        f_tipo = st.selectbox("Tipo", ["Ingreso", "Gasto"])
+        f_cat = st.selectbox("Categoría", ["Ahorros", "Inversiones", "Bonos", "Entrada de Capital", "Mantenimiento Versa", "Comida", "Otros"])
+        f_monto = st.number_input("Monto ($)", min_value=0.0)
+        f_coment = st.text_area("Descripción")
+        if st.form_submit_button("Guardar"):
+            nuevo = pd.DataFrame([{"Fecha": str(pd.Timestamp.now().date()), "Usuario": "Juan", "Tipo": f_tipo, "Categoria": f_cat, "Monto": f_monto, "Comentario": f_coment}])
+            df_up = pd.concat([df_mov, nuevo], ignore_index=True)
+            conn.update(worksheet="Movimientos", data=df_up)
+            st.cache_data.clear()
+            st.success("✅ Guardado.")
+
+# --- MÓDULO 4: CRÉDITOS ---
+elif menu == "Gestión de Créditos":
+    st.header("💸 Cuentas por Cobrar")
+    with st.expander("➕ Nuevo"):
+        with st.form("f_cred"):
+            f_cli = st.text_input("Cliente")
+            f_prod = st.text_input("Producto")
+            f_sal = st.number_input("Saldo ($)", min_value=0.0)
+            if st.form_submit_button("Registrar"):
+                nuevo_c = pd.DataFrame([{"Cliente": f_cli, "Producto": f_prod, "Saldo pendiente": f_sal}])
+                df_up_c = pd.concat([df_cred, nuevo_c], ignore_index=True)
+                conn.update(worksheet="Creditos", data=df_up_c)
+                st.cache_data.clear()
+                st.rerun()
+    st.dataframe(df_cred, use_container_width=True)
+
+# --- MÓDULO 5: INVERSIONES ---
+elif menu == "Inversiones":
+    st.header("📈 Portafolio Hapi")
+    with st.expander("➕ Nueva Inversión"):
+        with st.form("f_inv"):
+            f_tick = st.text_input("Ticker")
+            f_can = st.number_input("Cantidad", min_value=0.0)
+            f_cos = st.number_input("Costo Promedio", min_value=0.0)
+            if st.form_submit_button("Guardar"):
+                nueva_inv = pd.DataFrame([{"Ticker": f_tick.upper(), "Cantidad": f_can, "Costo Promedio": f_cos}])
+                df_up_i = pd.concat([df_port, nueva_inv], ignore_index=True)
+                conn.update(worksheet="Portafolio", data=df_up_i)
+                st.cache_data.clear()
+                st.rerun()
+    st.dataframe(df_port, use_container_width=True)
