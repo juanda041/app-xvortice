@@ -7,10 +7,13 @@ import yfinance as yf
 st.set_page_config(page_title="Xvortice Executive", layout="wide", page_icon="🏛️")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-@st.cache_data(ttl=300)
+# TTL=1 para que lea tus decimales de Google Sheets de una vez
+@st.cache_data(ttl=1)
 def cargar(hoja):
-    try: return conn.read(worksheet=hoja, ttl="0")
-    except: return pd.DataFrame()
+    try: 
+        return conn.read(worksheet=hoja, ttl="0")
+    except: 
+        return pd.DataFrame()
 
 @st.cache_data(ttl=600)
 def precios_vivos(ticks):
@@ -19,7 +22,8 @@ def precios_vivos(ticks):
         try:
             val = yf.Ticker(str(t).strip().upper()).history(period="1d")['Close'].iloc[-1]
             p_dict[t] = val
-        except: p_dict[t] = None
+        except: 
+            p_dict[t] = None
     return p_dict
 
 # Carga de las 3 hojas principales
@@ -43,6 +47,7 @@ if mod == "Estado Patrimonial":
         tk_list = df_p['Ticker'].dropna().unique().tolist()
         v_dict = precios_vivos(tk_list)
         df_p['Live'] = df_p['Ticker'].map(v_dict)
+        # Multiplicación de precisión para decimales de Hapi
         v_inv = (pd.to_numeric(df_p['Cantidad']) * df_p['Live'].fillna(0)).sum()
 
     total = cash + v_inv
@@ -55,7 +60,7 @@ if mod == "Estado Patrimonial":
     st.markdown("---")
     st.subheader("🤖 Analista IA Xvortice")
     if total < meta:
-        st.warning(f"Juan, faltan ${meta-total:,.2f} para tu objetivo. El portafolio hoy aporta ${v_inv:,.2f}.")
+        st.warning(f"Daniel, faltan ${meta-total:,.2f} para tu objetivo de $10k. El portafolio hoy aporta ${v_inv:,.2f}.")
     else:
         st.success("¡Meta superada! Es momento de fijar los $20,000.")
 
@@ -69,7 +74,7 @@ elif mod == "Registro":
             c = st.selectbox("Categoría", ["Ahorros", "Bonos", "Venta Xvortice", "Capital"])
             m = st.number_input("Monto ($)", min_value=0.0)
             n = st.text_input("Nota")
-            if st.form_submit_button("Guardar"):
+            if st.form_submit_button("Guardar Ingreso"):
                 new = pd.DataFrame([{"Fecha":str(pd.Timestamp.now().date()),"Tipo":"Ingreso","Categoria":c,"Monto":m,"Comentario":n}])
                 conn.update(worksheet="Movimientos", data=pd.concat([df_m, new], ignore_index=True))
                 st.cache_data.clear()
@@ -80,7 +85,7 @@ elif mod == "Registro":
             c = st.selectbox("Categoría", ["Versa", "Comida", "Hapi", "Gastos Operativos", "Otros Gastos"])
             m = st.number_input("Monto ($)", min_value=0.0)
             n = st.text_input("Nota")
-            if st.form_submit_button("Guardar"):
+            if st.form_submit_button("Guardar Gasto"):
                 new = pd.DataFrame([{"Fecha":str(pd.Timestamp.now().date()),"Tipo":"Gasto","Categoria":c,"Monto":m,"Comentario":n}])
                 conn.update(worksheet="Movimientos", data=pd.concat([df_m, new], ignore_index=True))
                 st.cache_data.clear()
@@ -94,7 +99,7 @@ elif mod == "Inversiones":
             c1, c2 = st.columns(2)
             tk = c1.text_input("Ticker")
             nm = c2.text_input("Nombre")
-            ct = c1.number_input("Cantidad", step=0.0001)
+            ct = c1.number_input("Cantidad", step=0.00001, format="%.5f")
             pc = c2.number_input("Precio Compra")
             cp = c1.number_input("Costo Promedio")
             if st.form_submit_button("Añadir a Bolsa"):
@@ -122,5 +127,6 @@ elif mod == "Créditos":
 elif mod == "Proyección":
     st.header("📈 Interés Compuesto")
     cap = st.number_input("Capital Inicial", value=4000.0)
-    t = st.slider("Años", 1, 30, 10)
-    st.success(f"### Estimación (10% anual): ${cap * (1.10**t):,.2f}")
+    años = st.slider("Años", 1, 30, 10)
+    proyeccion = cap * (1.10**años)
+    st.success(f"### Estimación (10% anual): ${proyeccion:,.2f}")
