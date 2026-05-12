@@ -35,110 +35,62 @@ df_cred = cargar_datos("Creditos")
 # --- 3. MENÚ LATERAL ---
 st.sidebar.title("🏛️ Xvortice Corp")
 st.sidebar.markdown("---")
-meta_ahorro = st.sidebar.number_input("🎯 Meta 2026 ($)", value=5000, step=500)
+meta_ahorro = st.sidebar.number_input("🎯 Meta de Patrimonio ($)", value=5000, step=500)
 menu = st.sidebar.selectbox("Módulo:", ["Estado Patrimonial", "Inversiones", "Gestión de Créditos", "Registro de Operaciones", "Interés Compuesto"])
 
 # --- 4. LÓGICA DE MÓDULOS ---
 
-# --- MÓDULO INVERSIONES (CON NUEVO CAMPO) ---
-if menu == "Inversiones":
-    st.header("📈 Portafolio Hapi (En Vivo)")
+if menu == "Estado Patrimonial":
+    st.header("📊 Patrimonio Real (Efectivo + Bolsa)")
     
-    # Formulario para escribir (SIEMPRE VISIBLE)
-    with st.expander("➕ Añadir nueva compra al Portafolio", expanded=True):
-        with st.form("form_inv_new"):
-            c1, c2, c3 = st.columns(3)
-            f_tick = c1.text_input("Ticker (Ej: VOO, NVDA)")
-            f_nom = c2.text_input("Nombre (Ej: S&P 500)")
-            f_cant = c3.number_input("Cantidad", min_value=0.0, step=0.0001)
-            
-            c4, c5 = st.columns(2)
-            f_p_compra = c4.number_input("Precio de Compra Individual ($)", min_value=0.0)
-            f_p_promedio = c5.number_input("Costo Promedio ($)", min_value=0.0)
-            
-            if st.form_submit_button("Guardar en Portafolio"):
-                nueva_fila = pd.DataFrame([{
-                    "Ticker": f_tick.upper(),
-                    "Nombre": f_nom,
-                    "Cantidad": f_cant,
-                    "Precio de Compra": f_p_compra,
-                    "Costo Promedio": f_p_promedio
-                }])
-                df_up_i = pd.concat([df_port, nueva_fila], ignore_index=True)
-                conn.update(worksheet="Portafolio", data=df_up_i)
-                st.cache_data.clear()
-                st.rerun()
-
-    if not df_port.empty:
-        # Traer precios de la bolsa
-        tickers = df_port['Ticker'].unique().tolist()
-        precios = obtener_precios_vivos(tickers)
-        df_port['Live Price'] = df_port['Ticker'].map(precios)
-        
-        # Mostrar tabla
-        st.dataframe(df_port, use_container_width=True)
-    else:
-        st.info("El portafolio está vacío.")
-
-# --- MÓDULO CRÉDITOS ---
-elif menu == "Gestión de Créditos":
-    st.header("💸 Cuentas por Cobrar")
-    with st.expander("➕ Registrar nuevo crédito", expanded=True):
-        with st.form("form_cred_new"):
-            f_cli = st.text_input("Cliente")
-            f_prod = st.text_input("Producto")
-            f_sal = st.number_input("Saldo ($)", min_value=0.0)
-            if st.form_submit_button("Registrar"):
-                n_c = pd.DataFrame([{"Cliente": f_cli, "Producto": f_prod, "Saldo pendiente": f_sal}])
-                df_up_c = pd.concat([df_cred, n_c], ignore_index=True)
-                conn.update(worksheet="Creditos", data=df_up_c)
-                st.cache_data.clear()
-                st.rerun()
-    st.dataframe(df_cred, use_container_width=True)
-
-# --- MÓDULO ESTADO PATRIMONIAL ---
-elif menu == "Estado Patrimonial":
-    st.header("📊 Resumen de Capital")
-    
-    # Cálculo Efectivo
+    # Cálculos
     df_mov['Monto'] = pd.to_numeric(df_mov['Monto'], errors='coerce').fillna(0)
     efectivo = df_mov[df_mov['Tipo'] == 'Ingreso']['Monto'].sum() - df_mov[df_mov['Tipo'] == 'Gasto']['Monto'].sum()
     
-    # Cálculo Inversiones
     valor_inv = 0
     if not df_port.empty:
         tickers = df_port['Ticker'].unique().tolist()
-        precios = obtener_precios_vivos(tickers)
-        df_port['Live Price'] = df_port['Ticker'].map(precios)
+        precios_vivos = obtener_precios_vivos(tickers)
+        df_port['Live Price'] = df_port['Ticker'].map(precios_vivos)
         valor_inv = (df_port['Cantidad'] * df_port['Live Price']).sum()
 
     cap_total = efectivo + valor_inv
     
-    c1, c2 = st.columns(2)
-    c1.metric("Capital Neto Real", f"${cap_total:,.2f}")
-    c2.metric("Meta 2026", f"${meta_ahorro:,.2f}")
+    # Métricas Visuales
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Efectivo / Ahorros", f"${efectivo:,.2f}")
+    c2.metric("Valor en Bolsa", f"${valor_inv:,.2f}")
+    c3.metric("PATRIMONIO TOTAL", f"${cap_total:,.2f}")
+    
     st.progress(min(cap_total/meta_ahorro, 1.0) if meta_ahorro > 0 else 0)
 
-# --- MÓDULO REGISTRO ---
-elif menu == "Registro de Operaciones":
-    st.header("📝 Nuevo Movimiento")
-    with st.form("form_mov_new"):
-        f_tipo = st.selectbox("Tipo", ["Ingreso", "Gasto"])
-        f_monto = st.number_input("Monto ($)", min_value=0.0)
-        f_coment = st.text_area("Comentario")
-        if st.form_submit_button("Guardar en Excel"):
-            n_m = pd.DataFrame([{"Fecha": str(pd.Timestamp.now().date()), "Tipo": f_tipo, "Monto": f_monto, "Comentario": f_coment}])
-            df_up_m = pd.concat([df_mov, n_m], ignore_index=True)
-            conn.update(worksheet="Movimientos", data=df_up_m)
-            st.cache_data.clear()
-            st.success("¡Guardado!")
+    # --- 🤖 SECCIÓN DEL ANALISTA IA (EL CEREBRO) ---
+    st.markdown("---")
+    st.subheader("🤖 Analista IA Xvortice")
+    
+    # Lógica de consejos de la IA
+    if cap_total < meta_ahorro:
+        faltante = meta_ahorro - cap_total
+        st.warning(f"Juan, actualmente estás al **{cap_total/meta_ahorro*100:.1f}%** de tu meta. Te faltan **${faltante:,.2f}** para alcanzar los ${meta_ahorro:,.0f}. ¡Es momento de optimizar los gastos del Versa o buscar un bono extra!")
+    else:
+        st.success(f"¡Felicidades, Juan! Has superado la meta de ${meta_ahorro:,.0f}. Tu patrimonio actual es de **${cap_total:,.2f}**. Es hora de subir la meta a $10,000 y dejar que el interés compuesto haga el resto.")
+    
+    st.info("💡 **Tip del Analista:** El mercado siempre se mueve. No te asustes si el valor en bolsa baja un poco hoy, recuerda que tu estrategia es a largo plazo.")
 
-# --- MÓDULO INTERÉS COMPUESTO ---
-elif menu == "Interés Compuesto":
-    st.header("📈 Proyección de Interés Compuesto")
-    c1, c2 = st.columns(2)
-    p = c1.number_input("Capital Inicial", value=4000.0)
-    t = c2.slider("Años", 1, 30, 10)
-    r = 0.10 # 10% anual
-    final = p * (1 + r)**t
-    st.success(f"### Estimación a {t} años: ${final:,.2f}")
+elif menu == "Inversiones":
+    st.header("📈 Portafolio Hapi")
+    with st.expander("➕ Añadir nueva compra", expanded=False):
+        with st.form("f_inv"):
+            f_tick = st.text_input("Ticker (Ej: VOO)")
+            f_cant = st.number_input("Cantidad", min_value=0.0, step=0.0001)
+            f_p_compra = st.number_input("Precio de Compra")
+            if st.form_submit_button("Guardar"):
+                nueva = pd.DataFrame([{"Ticker": f_tick.upper(), "Cantidad": f_cant, "Precio de Compra": f_p_compra}])
+                df_up = pd.concat([df_port, nueva], ignore_index=True)
+                conn.update(worksheet="Portafolio", data=df_up)
+                st.cache_data.clear()
+                st.rerun()
+    st.dataframe(df_port, use_container_width=True)
+
+elif menu == "Gestión de Créditos":
+    st.header("💸 Créd
