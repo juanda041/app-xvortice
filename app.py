@@ -3,80 +3,124 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import yfinance as yf
 
-# --- 1. CONFIGURACIÓN ---
+# --- CONFIGURACIÓN Y CONEXIÓN ---
 st.set_page_config(page_title="Xvortice Executive", layout="wide", page_icon="🏛️")
-
-# --- 2. CONEXIÓN ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=300)
-def cargar_datos(nombre_hoja):
-    try:
-        return conn.read(worksheet=nombre_hoja, ttl="0")
-    except:
-        return pd.DataFrame()
+def cargar(hoja):
+    try: return conn.read(worksheet=hoja, ttl="0")
+    except: return pd.DataFrame()
 
 @st.cache_data(ttl=600)
-def obtener_precios_vivos(tickers):
-    precios = {}
-    for t in tickers:
-        if not t or pd.isna(t): continue
+def precios_vivos(ticks):
+    p_dict = {}
+    for t in ticks:
         try:
-            stock = yf.Ticker(str(t).strip().upper())
-            precio = stock.history(period="1d")['Close'].iloc[-1]
-            precios[t] = precio
-        except:
-            precios[t] = None
-    return precios
+            val = yf.Ticker(str(t).strip().upper()).history(period="1d")['Close'].iloc[-1]
+            p_dict[t] = val
+        except: p_dict[t] = None
+    return p_dict
 
-df_mov = cargar_datos("Movimientos")
-df_port = cargar_datos("Portafolio")
-df_cred = cargar_datos("Creditos")
+# Carga de las 3 hojas principales
+df_m = cargar("Movimientos")
+df_p = cargar("Portafolio")
+df_c = cargar("Creditos")
 
-# --- 3. MENÚ LATERAL ---
+# --- MENÚ LATERAL ---
 st.sidebar.title("🏛️ Xvortice Corp")
-meta_ahorro = st.sidebar.number_input("🎯 Meta de Patrimonio ($)", value=10000, step=500)
-menu = st.sidebar.selectbox("Módulo:", 
-    ["Estado Patrimonial", "Registro de Operaciones", "Inversiones", "Gestión de Créditos", "Interés Compuesto"])
+meta = st.sidebar.number_input("🎯 Meta Patrimonio ($)", value=10000, step=500)
+mod = st.sidebar.selectbox("Módulo:", ["Estado Patrimonial", "Registro", "Inversiones", "Créditos", "Proyección"])
 
-# --- 4. LÓGICA DE MÓDULOS ---
-
-if menu == "Estado Patrimonial":
+# --- 1. ESTADO PATRIMONIAL + ANALISTA IA ---
+if mod == "Estado Patrimonial":
     st.header("📊 Patrimonio Real")
-    df_mov['Monto'] = pd.to_numeric(df_mov['Monto'], errors='coerce').fillna(0)
-    efectivo = df_mov[df_mov['Tipo'] == 'Ingreso']['Monto'].sum() - df_mov[df_mov['Tipo'] == 'Gasto']['Monto'].sum()
+    df_m['Monto'] = pd.to_numeric(df_m['Monto'], errors='coerce').fillna(0)
+    cash = df_m[df_m['Tipo']=='Ingreso']['Monto'].sum() - df_m[df_m['Tipo']=='Gasto']['Monto'].sum()
     
-    valor_inv = 0
-    if not df_port.empty:
-        t_list = df_port['Ticker'].dropna().unique().tolist()
-        p_vivos = obtener_precios_vivos(t_list)
-        df_port['Live Price'] = df_port['Ticker'].map(p_vivos)
-        df_port['Cantidad'] = pd.to_numeric(df_port['Cantidad'], errors='coerce').fillna(0)
-        valor_inv = (df_port['Cantidad'] * df_port['Live Price'].fillna(0)).sum()
+    v_inv = 0
+    if not df_p.empty:
+        tk_list = df_p['Ticker'].dropna().unique().tolist()
+        v_dict = precios_vivos(tk_list)
+        df_p['Live'] = df_p['Ticker'].map(v_dict)
+        v_inv = (pd.to_numeric(df_p['Cantidad']) * df_p['Live'].fillna(0)).sum()
 
-    cap_total = efectivo + valor_inv
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Efectivo", f"${efectivo:,.2f}")
-    c2.metric("Bolsa (Hapi)", f"${valor_inv:,.2f}")
-    c3.metric("TOTAL NETO", f"${cap_total:,.2f}")
-    st.progress(min(cap_total/meta_ahorro, 1.0) if meta_ahorro > 0 else 0)
-
+    total = cash + v_inv
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Efectivo", f"${cash:,.2f}")
+    col2.metric("Bolsa Live", f"${v_inv:,.2f}")
+    col3.metric("TOTAL NETO", f"${total:,.2f}")
+    st.progress(min(total/meta, 1.0) if meta > 0 else 0)
+    
     st.markdown("---")
     st.subheader("🤖 Analista IA Xvortice")
-    if cap_total < meta_ahorro:
-        st.warning(f"Juan, faltan ${meta_ahorro - cap_total:,.2f} para tu meta. ¡Sigue enfocado en el largo plazo!")
+    if total < meta:
+        st.warning(f"Juan, faltan ${meta-total:,.2f} para tu objetivo. El portafolio hoy aporta ${v_inv:,.2f}.")
     else:
-        st.success("¡Meta de 10k superada! Excelente trabajo.")
+        st.success("¡Meta superada! Es momento de fijar los $20,000.")
 
-elif menu == "Registro de Operaciones":
-    st.header("📝 Registro")
-    t1, t2 = st.tabs(["💰 Ingreso", "💸 Gasto"])
+# --- 2. REGISTRO (INGRESOS Y GASTOS SEPARADOS) ---
+elif mod == "Registro":
+    st.header("📝 Gestión de Movimientos")
+    i_tab, g_tab = st.tabs(["💰 Ingresos", "💸 Gastos"])
     
-    with t1:
-        with st.form("form_i", clear_on_submit=True):
-            cat_i = st.selectbox("Categoría", ["Ahorros", "Bonos", "Venta Xvortice", "Capital"])
-            mon_i = st.number_input("Monto ($)", min_value=0.0)
-            not_i = st.text_input("Detalle")
-            if st.form_submit_button("Guardar Ingreso"):
-                n_i = pd.DataFrame([{"Fecha": str(pd.Timestamp.now().date()), "Tipo": "Ingreso", "Categoria": cat_i, "Monto": mon_i, "Comentario": not_i}])
-                conn.update(worksheet="Movimientos", data=pd.
+    with i_tab:
+        with st.form("fi", clear_on_submit=True):
+            c = st.selectbox("Categoría", ["Ahorros", "Bonos", "Venta Xvortice", "Capital"])
+            m = st.number_input("Monto ($)", min_value=0.0)
+            n = st.text_input("Nota")
+            if st.form_submit_button("Guardar"):
+                new = pd.DataFrame([{"Fecha":str(pd.Timestamp.now().date()),"Tipo":"Ingreso","Categoria":c,"Monto":m,"Comentario":n}])
+                conn.update(worksheet="Movimientos", data=pd.concat([df_m, new], ignore_index=True))
+                st.cache_data.clear()
+                st.rerun()
+
+    with g_tab:
+        with st.form("fg", clear_on_submit=True):
+            c = st.selectbox("Categoría", ["Versa", "Comida", "Hapi", "Gastos Operativos", "Otros Gastos"])
+            m = st.number_input("Monto ($)", min_value=0.0)
+            n = st.text_input("Nota")
+            if st.form_submit_button("Guardar"):
+                new = pd.DataFrame([{"Fecha":str(pd.Timestamp.now().date()),"Tipo":"Gasto","Categoria":c,"Monto":m,"Comentario":n}])
+                conn.update(worksheet="Movimientos", data=pd.concat([df_m, new], ignore_index=True))
+                st.cache_data.clear()
+                st.rerun()
+
+# --- 3. INVERSIONES (TICKER, NOMBRE, CANTIDAD, PRECIO, PROMEDIO) ---
+elif mod == "Inversiones":
+    st.header("📈 Portafolio Hapi")
+    with st.expander("➕ Añadir Activo"):
+        with st.form("fp"):
+            c1, c2 = st.columns(2)
+            tk = c1.text_input("Ticker")
+            nm = c2.text_input("Nombre")
+            ct = c1.number_input("Cantidad", step=0.0001)
+            pc = c2.number_input("Precio Compra")
+            cp = c1.number_input("Costo Promedio")
+            if st.form_submit_button("Añadir a Bolsa"):
+                new = pd.DataFrame([{"Ticker":tk.upper(),"Nombre":nm,"Cantidad":ct,"Precio de Compra":pc,"Costo Promedio":cp}])
+                conn.update(worksheet="Portafolio", data=pd.concat([df_p, new], ignore_index=True))
+                st.cache_data.clear()
+                st.rerun()
+    st.dataframe(df_p, use_container_width=True)
+
+# --- 4. CRÉDITOS ---
+elif mod == "Créditos":
+    st.header("💸 Cuentas por Cobrar")
+    with st.expander("➕ Nuevo Crédito"):
+        with st.form("fc"):
+            cl = st.text_input("Cliente")
+            sd = st.number_input("Saldo")
+            if st.form_submit_button("Registrar"):
+                new = pd.DataFrame([{"Cliente":cl, "Saldo pendiente":sd}])
+                conn.update(worksheet="Creditos", data=pd.concat([df_c, new], ignore_index=True))
+                st.cache_data.clear()
+                st.rerun()
+    st.dataframe(df_c, use_container_width=True)
+
+# --- 5. PROYECCIÓN ---
+elif mod == "Proyección":
+    st.header("📈 Interés Compuesto")
+    cap = st.number_input("Capital Inicial", value=4000.0)
+    t = st.slider("Años", 1, 30, 10)
+    st.success(f"### Estimación (10% anual): ${cap * (1.10**t):,.2f}")
