@@ -38,7 +38,8 @@ df_cred = cargar_datos("Creditos")
 
 # --- 3. MENÚ LATERAL ---
 st.sidebar.title("🏛️ Xvortice Corp")
-meta_ahorro = st.sidebar.number_input("🎯 Meta de Patrimonio ($)", value=5000, step=500)
+# Así debe quedar para que siempre inicie en 10,000:
+meta_ahorro = st.sidebar.number_input("🎯 Meta de Patrimonio ($)", value=10000, step=500)
 menu = st.sidebar.selectbox("Módulo:", 
     ["Estado Patrimonial", "Registro de Operaciones", "Inversiones", "Gestión de Créditos", "Interés Compuesto"])
 
