@@ -1,4 +1,5 @@
 streamlit
 st-gsheets-connection
-plotly
+pandas
+numpy
 yfinance
