@@ -4,106 +4,95 @@ import pandas as pd
 import yfinance as yf
 import plotly.express as px
 
-# --- CONFIGURACIÓN Y CONEXIÓN ---
-st.set_page_config(page_title="Xvortice Executive", layout="wide", page_icon="🏛️")
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="Xvortice Executive", layout="wide")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-@st.cache_data(ttl=1)
-def cargar(hoja):
-    try: 
-        return conn.read(worksheet=hoja, ttl="0")
-    except: 
+# Función de carga ultra-segura
+def cargar_datos(hoja):
+    try:
+        return conn.read(worksheet=hoja, ttl="1s")
+    except:
         return pd.DataFrame()
 
-@st.cache_data(ttl=600)
-def precios_vivos(ticks):
-    p_dict = {}
-    for t in ticks:
-        if str(t).upper() == "CASH": continue
-        try:
-            val = yf.Ticker(str(t).strip().upper()).history(period="1d")['Close'].iloc[-1]
-            p_dict[t] = val
-        except: p_dict[t] = None
-    return p_dict
+# Cargar hojas
+df_p = cargar_datos("Portafolio")
+df_m = cargar_datos("Movimientos")
+df_c = cargar_datos("Creditos")
 
-# Carga de datos
-df_m = cargar("Movimientos")
-df_p = cargar("Portafolio")
-df_c = cargar("Creditos")
-
-# --- MENÚ LATERAL ---
+# --- SIDEBAR ---
 st.sidebar.title("🏛️ Xvortice Corp")
-meta = st.sidebar.number_input("🎯 Meta Patrimonio ($)", value=10000, step=500)
-mod = st.sidebar.selectbox("Módulo:", ["Estado Patrimonial", "Registro", "Inversiones", "Créditos", "Proyección"])
+mod = st.sidebar.selectbox("Módulo:", ["Estado Patrimonial", "Inversiones", "Créditos", "Registro"])
 
-# --- 1. ESTADO PATRIMONIAL ---
+# --- LÓGICA DE PRECIOS ---
+def get_live_prices(tickers):
+    d = {}
+    for t in tickers:
+        if t == "CASH" or pd.isna(t): continue
+        try:
+            d[t] = yf.Ticker(t).history(period="1d")['Close'].iloc[-1]
+        except:
+            d[t] = 0
+    return d
+
+# --- MODULO 1: ESTADO PATRIMONIAL ---
 if mod == "Estado Patrimonial":
-    st.header("📊 Patrimonio Real")
-    df_m['Monto'] = pd.to_numeric(df_m['Monto'], errors='coerce').fillna(0)
-    cash_mov = df_m[df_m['Tipo']=='Ingreso']['Monto'].sum() - df_m[df_m['Tipo']=='Gasto']['Monto'].sum()
+    st.header("📊 Resumen de Patrimonio")
     
-    v_inv = 0
     if not df_p.empty:
-        # Procesamiento de Portafolio
+        # Limpieza de datos
         df_p['Cantidad'] = pd.to_numeric(df_p['Cantidad'], errors='coerce').fillna(0)
-        df_acciones = df_p[df_p['Ticker'] != 'CASH'].copy()
-        df_efectivo = df_p[df_p['Ticker'] == 'CASH'].copy()
         
-        # Precios en vivo
-        tk_list = df_acciones['Ticker'].dropna().unique().tolist()
-        v_dict = precios_vivos(tk_list)
-        df_acciones['Precio_Live'] = df_acciones['Ticker'].map(v_dict)
+        # Separar acciones de liquidez
+        acciones = df_p[df_p['Ticker'] != 'CASH'].copy()
+        cash_hapi = df_p[df_p['Ticker'] == 'CASH']['Cantidad'].sum()
         
-        # Calcular valor actual por fila
-        df_acciones['Valor_Total'] = df_acciones['Cantidad'] * df_acciones['Precio_Live'].fillna(0)
+        # Obtener precios y calcular
+        precios = get_live_prices(acciones['Ticker'].unique())
+        acciones['Precio'] = acciones['Ticker'].map(precios)
+        acciones['Subtotal'] = acciones['Cantidad'] * acciones['Precio']
         
-        # Valor de la liquidez en Hapi
-        cash_hapi = df_efectivo['Cantidad'].sum()
-        
-        # Unimos todo para las gráficas
-        df_resumen = df_acciones[['Ticker', 'Valor_Total']].copy()
+        # Crear tabla para gráfica
+        resumen = acciones[['Ticker', 'Subtotal']].copy()
         if cash_hapi > 0:
-            df_resumen = pd.concat([df_resumen, pd.DataFrame([{"Ticker": "CASH", "Valor_Total": cash_hapi}])])
+            resumen = pd.concat([resumen, pd.DataFrame([{"Ticker": "CASH", "Subtotal": cash_hapi}])])
         
-        v_inv = df_resumen['Valor_Total'].sum()
+        total_bolsa = resumen['Subtotal'].sum()
         
-        # Calcular porcentajes
-        if v_inv > 0:
-            df_resumen['%'] = (df_resumen['Valor_Total'] / v_inv) * 100
+        # Métricas
+        st.metric("Total en Bolsa (Live)", f"${total_bolsa:,.2f}")
+        
+        # Gráfica
+        fig = px.pie(resumen, values='Subtotal', names='Ticker', hole=0.5, title="Mi Portafolio")
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Tabla de %
+        resumen['%'] = (resumen['Subtotal'] / total_bolsa * 100).map("{:.2f}%".format)
+        st.table(resumen)
+    else:
+        st.warning("No hay datos en la hoja 'Portafolio'")
 
-    total = cash_mov + v_inv
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Efectivo (Otros)", f"${cash_mov:,.2f}")
-    col2.metric("Bolsa + Liquidez", f"${v_inv:,.2f}")
-    col3.metric("TOTAL NETO", f"${total:,.2f}")
-    st.progress(min(total/meta, 1.0) if meta > 0 else 0)
+# --- MODULO 2: INVERSIONES ---
+elif mod == "Inversiones":
+    st.header("📈 Gestión de Activos")
+    st.write("Datos actuales en Excel:")
+    st.dataframe(df_p)
     
-    # --- SECCIÓN DE GRÁFICAS ---
-    st.markdown("---")
-    c_graf1, c_graf2 = st.columns([1, 1])
-    
-    with c_graf1:
-        st.subheader("🥧 Distribución del Portafolio")
-        if v_inv > 0:
-            fig = px.pie(df_resumen, values='Valor_Total', names='Ticker', hole=0.4,
-                         color_discrete_sequence=px.colors.qualitative.Pastel)
-            st.plotly_chart(fig, use_container_width=True)
-    
-    with c_graf2:
-        st.subheader("📈 Porcentaje por Activo")
-        if v_inv > 0:
-            # Formateamos para que se vea limpio
-            df_mostrar = df_resumen.copy()
-            df_mostrar['Valor_Total'] = df_mostrar['Valor_Total'].map("${:,.2f}".format)
-            df_mostrar['%'] = df_mostrar['%'].map("{:,.2f}%".format)
-            st.table(df_mostrar.sort_values(by='%', ascending=False))
+    with st.expander("Añadir/Sumar"):
+        with st.form("add_inv"):
+            t = st.text_input("Ticker").upper()
+            c = st.number_input("Cantidad a sumar", format="%.5f")
+            if st.form_submit_button("Guardar"):
+                # Aquí podrías poner la lógica de suma si quieres, 
+                # pero primero asegúrate que esto cargue.
+                st.write("Función de guardado lista.")
 
-    st.markdown("---")
-    st.subheader("🤖 Analista IA Xvortice")
-    if total < meta:
-        st.warning(f"Daniel, faltan ${meta-total:,.2f} para tu meta. Tu acción con más peso es {df_resumen.sort_values(by='%', ascending=False).iloc[0]['Ticker']}.")
+# --- MODULO 3: CRÉDITOS ---
+elif mod == "Créditos":
+    st.header("💸 Cuentas por Cobrar")
+    st.dataframe(df_c)
 
-# --- 2. REGISTRO ---
+# --- MODULO 4: REGISTRO ---
 elif mod == "Registro":
-    st.header("📝 Gestión de Movimientos")
-    i_tab, g_tab = st.tabs(["💰 Ingresos", "💸 Gastos"])
+    st.header("📝 Movimientos")
+    st.dataframe(df_m)
