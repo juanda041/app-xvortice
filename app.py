@@ -7,7 +7,6 @@ import yfinance as yf
 st.set_page_config(page_title="Xvortice Executive", layout="wide", page_icon="🏛️")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# TTL=1 permite que la App lea cambios del Excel casi al instante
 @st.cache_data(ttl=1)
 def cargar(hoja):
     try: 
@@ -15,7 +14,6 @@ def cargar(hoja):
     except: 
         return pd.DataFrame()
 
-# Obtiene precios reales de la bolsa (Yahoo Finance)
 @st.cache_data(ttl=600)
 def precios_vivos(ticks):
     p_dict = {}
@@ -27,7 +25,7 @@ def precios_vivos(ticks):
             p_dict[t] = None
     return p_dict
 
-# Carga de las hojas del Excel de Daniel
+# Carga de datos
 df_m = cargar("Movimientos")
 df_p = cargar("Portafolio")
 df_c = cargar("Creditos")
@@ -48,8 +46,9 @@ if mod == "Estado Patrimonial":
         tk_list = df_p['Ticker'].dropna().unique().tolist()
         v_dict = precios_vivos(tk_list)
         df_p['Live'] = df_p['Ticker'].map(v_dict)
-        # Multiplicación exacta usando los decimales de tu Excel
-        v_inv = (pd.to_numeric(df_p['Cantidad']) * df_p['Live'].fillna(0)).sum()
+        # Cálculo de valor por cada ticker
+        df_p['Valor_Actual'] = pd.to_numeric(df_p['Cantidad']) * df_p['Live'].fillna(0)
+        v_inv = df_p['Valor_Actual'].sum()
 
     total = cash + v_inv
     col1, col2, col3 = st.columns(3)
@@ -58,18 +57,24 @@ if mod == "Estado Patrimonial":
     col3.metric("TOTAL NETO", f"${total:,.2f}")
     st.progress(min(total/meta, 1.0) if meta > 0 else 0)
     
+    # TABLA DE VERIFICACIÓN PARA DANIEL
+    st.markdown("---")
+    st.subheader("🔍 Verificación de Precios (Bolsa vs Hapi)")
+    if not df_p.empty:
+        st.write("Compara la columna 'Live' con el precio actual de Hapi:")
+        st.dataframe(df_p[['Ticker', 'Cantidad', 'Live', 'Valor_Actual']], use_container_width=True)
+    
     st.markdown("---")
     st.subheader("🤖 Analista IA Xvortice")
     if total < meta:
-        st.warning(f"Daniel, faltan ${meta-total:,.2f} para tu meta. Tu portafolio en Hapi vale ${v_inv:,.2f} hoy.")
+        st.warning(f"Daniel, faltan ${meta-total:,.2f} para tu meta de $10k.")
     else:
-        st.success("¡Meta de $10,000 alcanzada! Xvortice sigue creciendo.")
+        st.success("¡Meta superada! Xvortice está en la cima.")
 
 # --- 2. REGISTRO ---
 elif mod == "Registro":
     st.header("📝 Gestión de Movimientos")
     i_tab, g_tab = st.tabs(["💰 Ingresos", "💸 Gastos"])
-    
     with i_tab:
         with st.form("fi", clear_on_submit=True):
             c = st.selectbox("Categoría", ["Ahorros", "Bonos", "Venta Xvortice", "Capital"])
@@ -80,7 +85,6 @@ elif mod == "Registro":
                 conn.update(worksheet="Movimientos", data=pd.concat([df_m, new], ignore_index=True))
                 st.cache_data.clear()
                 st.rerun()
-
     with g_tab:
         with st.form("fg", clear_on_submit=True):
             c = st.selectbox("Categoría", ["Versa", "Comida", "Hapi", "Gastos Operativos", "Otros Gastos"])
