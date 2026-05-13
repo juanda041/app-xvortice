@@ -2,10 +2,12 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import yfinance as yf
+import plotly.express as px
 from datetime import datetime
 
 st.set_page_config(page_title="Xvortice Pro", layout="wide", page_icon="🏛️")
 
+# Estilo Daniel
 st.markdown("""
     <style>
     .main { background-color: #0e1117; color: white; }
@@ -13,7 +15,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏛️ Xvortice: Control Maestro")
+st.title("🏛️ Xvortice: Balance Maestro")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -28,85 +30,96 @@ try:
     port = clean_df(conn.read(worksheet="Portafolio", ttl=0).dropna(how='all'))
     cred = clean_df(conn.read(worksheet="Creditos", ttl=0).dropna(how='all'))
 
-    # --- 2. LÓGICA DE BALANCE DE ACCIONES ---
-    # Consolidamos: Ticker, Cantidad Total y Costo Total (lo que pagaste)
-    # Suponiendo que en tu Excel 'Portafolio' tienes columnas: Ticker, Cantidad, Precio Compra (o Monto Invertido)
-    port['Monto_Invertido'] = pd.to_numeric(port['Monto Invertido'], errors='coerce').fillna(0)
-    port['Cantidad'] = pd.to_numeric(port['Cantidad'], errors='coerce').fillna(0)
+    # --- 2. IDENTIFICACIÓN FLEXIBLE DE COLUMNAS (PORTAFOLIO) ---
+    col_tk = [c for c in port.columns if 'ticker' in c.lower()][0]
+    col_cant = [c for c in port.columns if 'cant' in c.lower()][0]
+    # Busca 'monto' o 'invers' o 'costo'
+    cols_monto_search = [c for c in port.columns if any(x in c.lower() for x in ['monto', 'invers', 'costo'])]
+    col_monto_inv = cols_monto_search[0] if cols_monto_search else port.columns[2]
+
+    # --- 3. LÓGICA DE BALANCE ---
+    port[col_monto_inv] = pd.to_numeric(port[col_monto_inv], errors='coerce').fillna(0)
+    port[col_cant] = pd.to_numeric(port[col_cant], errors='coerce').fillna(0)
     
-    resumen_acciones = port.groupby('Ticker').agg({
-        'Cantidad': 'sum',
-        'Monto_Invertido': 'sum'
+    resumen_acciones = port.groupby(col_tk).agg({
+        col_cant: 'sum',
+        col_monto_inv: 'sum'
     }).reset_index()
 
-    datos_portafolio = []
-    valor_acciones_total_hoy = 0
-    costo_total_portafolio = 0
+    datos_finales = []
+    valor_mkt_total = 0
+    costo_base_total = 0
 
-    for _, row in resumen_acciones.iterrows():
-        tk = str(row['Ticker']).upper().strip()
-        if tk not in ["CASH", "NAN", ""]:
-            try:
-                p_actual = yf.Ticker(tk).history(period="1d")['Close'].iloc[-1]
-                valor_hoy = row['Cantidad'] * p_actual
-                ganancia_abs = valor_hoy - row['Monto_Invertido']
-                ganancia_pct = (ganancia_abs / row['Monto_Invertido'] * 100) if row['Monto_Invertido'] > 0 else 0
-                
-                datos_portafolio.append({
-                    "Ticker": tk,
-                    "Cant.": row['Cantidad'],
-                    "Inversión ($)": row['Monto_Invertido'],
-                    "Valor Hoy ($)": valor_hoy,
-                    "Ganancia ($)": ganancia_abs,
-                    "Retorno (%)": f"{ganancia_pct:.2f}%"
-                })
-                valor_acciones_total_hoy += valor_hoy
-                costo_total_portafolio += row['Monto_Invertido']
-            except: continue
+    with st.sidebar:
+        st.header("💹 Precios Actuales")
+        for _, row in resumen_acciones.iterrows():
+            tk = str(row[col_tk]).upper().strip()
+            if tk not in ["CASH", "NAN", ""]:
+                try:
+                    p_hoy = yf.Ticker(tk).history(period="1d")['Close'].iloc[-1]
+                    v_actual = row[col_cant] * p_hoy
+                    gan_dinero = v_actual - row[col_monto_inv]
+                    
+                    datos_finales.append({
+                        "Ticker": tk,
+                        "Acciones": row[col_cant],
+                        "Inversión ($)": row[col_monto_inv],
+                        "Valor Actual ($)": v_actual,
+                        "Ganancia ($)": gan_dinero,
+                        "Yield (%)": (gan_dinero/row[col_monto_inv]*100) if row[col_monto_inv]>0 else 0
+                    })
+                    valor_mkt_total += v_actual
+                    costo_base_total += row[col_monto_inv]
+                    st.write(f"**{tk}:** ${p_hoy:,.2f}")
+                except: continue
+        st.divider()
+        meta = st.number_input("Meta Patrimonial", value=10000)
 
-    df_balance = pd.DataFrame(datos_portafolio)
-
-    # 3. LÓGICA DE PATRIMONIO
-    ingresos = pd.to_numeric(movs[movs['Tipo'].str.contains('Ingreso', case=False, na=False)]['Monto'], errors='coerce').sum()
-    gastos_p = pd.to_numeric(movs[movs['Tipo'].str.contains('Gasto|Egreso', case=False, na=False)]['Monto'], errors='coerce').sum()
-    liquidez = ingresos - gastos_p
+    # 4. PATRIMONIO TOTAL
+    # Liquidez
+    ing = pd.to_numeric(movs[movs['Tipo'].str.contains('Ingreso', case=False, na=False)]['Monto'], errors='coerce').sum()
+    gas = pd.to_numeric(movs[movs['Tipo'].str.contains('Gasto|Egreso', case=False, na=False)]['Monto'], errors='coerce').sum()
+    liquidez = ing - gas
     
-    col_saldo = [c for c in cred.columns if 'saldo' in c.lower()][0]
-    total_por_cobrar = pd.to_numeric(cred[col_saldo], errors='coerce').sum()
+    # Cuentas por Cobrar
+    col_s = [c for c in cred.columns if 'saldo' in c.lower() or 'pendiente' in c.lower()][0]
+    por_cobrar = pd.to_numeric(cred[col_s], errors='coerce').sum()
     
-    patrimonio = liquidez + valor_acciones_total_hoy + total_por_cobrar
+    patrimonio = liquidez + valor_mkt_total + por_cobrar
 
-    # 4. MÉTRICAS
+    # 5. DASHBOARD
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("PATRIMONIO TOTAL", f"${patrimonio:,.2f}")
-    c2.metric("Balance Inversiones", f"${valor_acciones_total_hoy:,.2f}", f"{((valor_acciones_total_hoy/costo_total_portafolio-1)*100 if costo_total_portafolio > 0 else 0):.2f}%")
-    c3.metric("Liquidez", f"${liquidez:,.2f}")
-    c4.metric("Cuentas por Cobrar", f"${total_por_cobrar:,.2f}")
+    c2.metric("Balance Inversión", f"${valor_mkt_total:,.2f}", f"{(valor_mkt_total-costo_base_total):,.2f}")
+    c3.metric("Efectivo Neto", f"${liquidez:,.2f}")
+    c4.metric("Cuentas x Cobrar", f"${por_cobrar:,.2f}")
 
-    # 5. PANELES
-    t1, t2, t3 = st.tabs(["📊 Mi Balance de Acciones", "📝 Registro", "🤖 IA"])
+    # 6. PANELES
+    t1, t2, t3 = st.tabs(["📊 Mi Portafolio", "📝 Registrar", "🤖 IA"])
 
     with t1:
-        st.subheader("Estado Detallado de Inversiones")
-        st.dataframe(df_balance, use_container_width=True)
-        
-        st.divider()
-        st.subheader("Distribución por Activo")
-        fig = px.pie(df_balance, values='Valor Hoy ($)', names='Ticker', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
-        st.plotly_chart(fig, use_container_width=True)
+        if datos_finales:
+            df_res = pd.DataFrame(datos_finales)
+            st.dataframe(df_res.style.format(precision=2), use_container_width=True)
+            fig = px.bar(df_res, x="Ticker", y="Ganancia ($)", color="Ganancia ($)", 
+                         title="Ganancia/Pérdida por Acción", color_continuous_scale='RdYlGn')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("No hay acciones registradas con montos válidos.")
 
     with t2:
-        with st.form("registro_portafolio"):
-            st.write("Registrar Compra Nueva")
-            col1, col2, col3 = st.columns(3)
-            nuevo_tk = col1.text_input("Ticker").upper()
-            nueva_cant = col2.number_input("Cantidad", min_value=0.0)
-            nuevo_costo = col3.number_input("Total Pagado ($)", min_value=0.0)
-            if st.form_submit_button("Añadir al Excel"):
-                new_data = pd.DataFrame([[nuevo_tk, nueva_cant, nuevo_costo, 0, ""]], columns=port.columns[:5])
-                port = pd.concat([port, new_data], ignore_index=True)
+        st.subheader("Registrar nueva compra")
+        with st.form("add_inv"):
+            c1, c2, c3 = st.columns(3)
+            nt = c1.text_input("Ticker (Ej: BAC)")
+            nc = c2.number_input("Cantidad", min_value=0.0)
+            nm = c3.number_input("Inversión Total ($)", min_value=0.0)
+            if st.form_submit_button("Guardar"):
+                # Aquí usamos los nombres de columnas que detectamos arriba
+                new_row = pd.DataFrame([[nt.upper(), nc, nm, 0, ""]], columns=port.columns[:5])
+                port = pd.concat([port, new_row], ignore_index=True)
                 conn.update(worksheet="Portafolio", data=port)
-                st.success(f"Registrado: {nuevo_tk}")
+                st.success(f"Guardado {nt}")
 
 except Exception as e:
     st.error(f"Error: {e}")
