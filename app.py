@@ -12,10 +12,11 @@ st.markdown("""
     <style>
     .main { background-color: #0e1117; color: white; }
     .stMetric { background-color: #1f2937; padding: 15px; border-radius: 12px; border-left: 5px solid #3b82f6; }
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏛️ Xvortice: Balance Maestro")
+st.title("🏛️ Xvortice: Sistema Integral")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -30,96 +31,93 @@ try:
     port = clean_df(conn.read(worksheet="Portafolio", ttl=0).dropna(how='all'))
     cred = clean_df(conn.read(worksheet="Creditos", ttl=0).dropna(how='all'))
 
-    # --- 2. IDENTIFICACIÓN FLEXIBLE DE COLUMNAS (PORTAFOLIO) ---
+    # --- 2. CÁLCULOS DE INVERSIONES ---
     col_tk = [c for c in port.columns if 'ticker' in c.lower()][0]
     col_cant = [c for c in port.columns if 'cant' in c.lower()][0]
-    # Busca 'monto' o 'invers' o 'costo'
-    cols_monto_search = [c for c in port.columns if any(x in c.lower() for x in ['monto', 'invers', 'costo'])]
-    col_monto_inv = cols_monto_search[0] if cols_monto_search else port.columns[2]
+    cols_monto = [c for c in port.columns if any(x in c.lower() for x in ['monto', 'invers', 'costo'])]
+    col_inv = cols_monto[0] if cols_monto else port.columns[2]
 
-    # --- 3. LÓGICA DE BALANCE ---
-    port[col_monto_inv] = pd.to_numeric(port[col_monto_inv], errors='coerce').fillna(0)
-    port[col_cant] = pd.to_numeric(port[col_cant], errors='coerce').fillna(0)
-    
-    resumen_acciones = port.groupby(col_tk).agg({
-        col_cant: 'sum',
-        col_monto_inv: 'sum'
-    }).reset_index()
-
-    datos_finales = []
     valor_mkt_total = 0
-    costo_base_total = 0
+    resumen_port = port.groupby(col_tk).agg({col_cant: 'sum', col_inv: 'sum'}).reset_index()
+    
+    for _, row in resumen_port.iterrows():
+        tk = str(row[col_tk]).upper().strip()
+        if tk not in ["CASH", "NAN", ""]:
+            try:
+                p = yf.Ticker(tk).history(period="1d")['Close'].iloc[-1]
+                valor_mkt_total += (row[col_cant] * p)
+            except: continue
 
-    with st.sidebar:
-        st.header("💹 Precios Actuales")
-        for _, row in resumen_acciones.iterrows():
-            tk = str(row[col_tk]).upper().strip()
-            if tk not in ["CASH", "NAN", ""]:
-                try:
-                    p_hoy = yf.Ticker(tk).history(period="1d")['Close'].iloc[-1]
-                    v_actual = row[col_cant] * p_hoy
-                    gan_dinero = v_actual - row[col_monto_inv]
-                    
-                    datos_finales.append({
-                        "Ticker": tk,
-                        "Acciones": row[col_cant],
-                        "Inversión ($)": row[col_monto_inv],
-                        "Valor Actual ($)": v_actual,
-                        "Ganancia ($)": gan_dinero,
-                        "Yield (%)": (gan_dinero/row[col_monto_inv]*100) if row[col_monto_inv]>0 else 0
-                    })
-                    valor_mkt_total += v_actual
-                    costo_base_total += row[col_monto_inv]
-                    st.write(f"**{tk}:** ${p_hoy:,.2f}")
-                except: continue
-        st.divider()
-        meta = st.number_input("Meta Patrimonial", value=10000)
-
-    # 4. PATRIMONIO TOTAL
-    # Liquidez
+    # --- 3. PATRIMONIO Y LIQUIDEZ ---
     ing = pd.to_numeric(movs[movs['Tipo'].str.contains('Ingreso', case=False, na=False)]['Monto'], errors='coerce').sum()
     gas = pd.to_numeric(movs[movs['Tipo'].str.contains('Gasto|Egreso', case=False, na=False)]['Monto'], errors='coerce').sum()
     liquidez = ing - gas
     
-    # Cuentas por Cobrar
     col_s = [c for c in cred.columns if 'saldo' in c.lower() or 'pendiente' in c.lower()][0]
     por_cobrar = pd.to_numeric(cred[col_s], errors='coerce').sum()
     
     patrimonio = liquidez + valor_mkt_total + por_cobrar
 
-    # 5. DASHBOARD
+    # 4. DASHBOARD PRINCIPAL
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("PATRIMONIO TOTAL", f"${patrimonio:,.2f}")
-    c2.metric("Balance Inversión", f"${valor_mkt_total:,.2f}", f"{(valor_mkt_total-costo_base_total):,.2f}")
-    c3.metric("Efectivo Neto", f"${liquidez:,.2f}")
-    c4.metric("Cuentas x Cobrar", f"${por_cobrar:,.2f}")
+    c2.metric("Portafolio", f"${valor_mkt_total:,.2f}")
+    c3.metric("Efectivo (Liquidez)", f"${liquidez:,.2f}")
+    c4.metric("Por Cobrar", f"${por_cobrar:,.2f}")
 
-    # 6. PANELES
-    t1, t2, t3 = st.tabs(["📊 Mi Portafolio", "📝 Registrar", "🤖 IA"])
+    # 5. EL CORAZÓN DE LA APP: PESTAÑAS
+    t1, t2, t3, t4 = st.tabs(["📝 Anotar Gastos/Ingresos", "📊 Balance y Tablas", "💹 Proyección Futura", "🤖 IA Xvortice"])
 
     with t1:
-        if datos_finales:
-            df_res = pd.DataFrame(datos_finales)
-            st.dataframe(df_res.style.format(precision=2), use_container_width=True)
-            fig = px.bar(df_res, x="Ticker", y="Ganancia ($)", color="Ganancia ($)", 
-                         title="Ganancia/Pérdida por Acción", color_continuous_scale='RdYlGn')
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("No hay acciones registradas con montos válidos.")
+        st.subheader("Nuevo Registro de Caja")
+        with st.form("form_gastos"):
+            col_f, col_t, col_m = st.columns(3)
+            f_reg = col_f.date_input("Fecha", datetime.now())
+            t_reg = col_t.selectbox("Tipo de Movimiento", ["Ingreso", "Gasto"])
+            m_reg = col_m.number_input("Monto ($)", min_value=0.0)
+            c_reg = st.text_input("Categoría / Descripción (Ej: Comida, Venta Celular, Pasaje)")
+            
+            if st.form_submit_button("Guardar en mi Excel"):
+                # Ajustamos la fila para que coincida con las columnas de tu hoja Movimientos
+                nueva_fila = pd.DataFrame([[f_reg, "Daniel", t_reg, c_reg, "", m_reg, "", ""]], columns=movs.columns[:8])
+                movs = pd.concat([movs, nueva_fila], ignore_index=True)
+                conn.update(worksheet="Movimientos", data=movs)
+                st.success(f"Registrado: {t_reg} de ${m_reg}")
 
     with t2:
-        st.subheader("Registrar nueva compra")
-        with st.form("add_inv"):
-            c1, c2, c3 = st.columns(3)
-            nt = c1.text_input("Ticker (Ej: BAC)")
-            nc = c2.number_input("Cantidad", min_value=0.0)
-            nm = c3.number_input("Inversión Total ($)", min_value=0.0)
-            if st.form_submit_button("Guardar"):
-                # Aquí usamos los nombres de columnas que detectamos arriba
-                new_row = pd.DataFrame([[nt.upper(), nc, nm, 0, ""]], columns=port.columns[:5])
-                port = pd.concat([port, new_row], ignore_index=True)
-                conn.update(worksheet="Portafolio", data=port)
-                st.success(f"Guardado {nt}")
+        st.subheader("Tus Datos Actuales")
+        col_m, col_c = st.columns(2)
+        with col_m:
+            st.write("**Últimos Movimientos**")
+            st.dataframe(movs.tail(10), use_container_width=True)
+        with col_c:
+            st.write("**Cuentas por Cobrar**")
+            st.dataframe(cred[['Cliente', col_s]].tail(10), use_container_width=True)
+
+    with t3:
+        st.subheader("🔮 Tu Futuro Financiero")
+        años = st.slider("¿A cuántos años quieres ver tu futuro?", 1, 40, 10)
+        tasa = st.slider("Rendimiento anual estimado (%)", 1, 20, 10)
+        
+        # Fórmula de Interés Compuesto aplicada a tu Patrimonio Real
+        valor_futuro = patrimonio * (1 + (tasa/100))**años
+        
+        st.markdown(f"### Con un patrimonio actual de **${patrimonio:,.2f}**:")
+        st.success(f"En **{años} años**, tendrías un total de **${valor_futuro:,.2f}**")
+        
+        # Gráfica de crecimiento
+        proyeccion = [patrimonio * (1 + (tasa/100))**i for i in range(años + 1)]
+        st.line_chart(proyeccion)
+
+    with t4:
+        st.subheader("🤖 Consultoría IA Xvortice")
+        pregunta = st.text_input("Hazme una pregunta sobre tu situación actual:")
+        if pregunta:
+            # La IA ahora responde con contexto real
+            pct_cobrar = (por_cobrar/patrimonio)*100 if patrimonio > 0 else 0
+            st.info(f"Daniel, analizando tus datos: Tu liquidez es de ${liquidez:,.2f}. "
+                    f"Tienes un {pct_cobrar:.1f}% de tu patrimonio en cuentas por cobrar. "
+                    f"Si mantienes el ritmo, vas por buen camino hacia tu meta de ${patrimonio + 2000:,.0f}.")
 
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"Error técnico: {e}")
