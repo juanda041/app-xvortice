@@ -118,4 +118,10 @@ try:
 
     with tab4:
         st.subheader("🤖 Inteligencia Financiera")
-        duda = st.text_input("Hazle una pregunta a Xvortice sobre tu dinero
+        duda = st.text_input("Hazle una pregunta a Xvortice sobre tu dinero:")
+        if duda:
+            margen = ((ingresos - gastos_pers) / ingresos * 100) if ingresos > 0 else 0
+            st.info(f"Daniel, tu capacidad de ahorro/inversión actual es del {margen:.1f}%. Tus activos en cuentas por cobrar representan un {((cuentas_cobrar/patrimonio_real)*100):.1f}% de tu valor neto.")
+
+except Exception as e:
+    st.error(f"Error en el sistema: {e}")
