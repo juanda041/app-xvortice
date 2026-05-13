@@ -82,4 +82,20 @@ try:
         st.subheader("Distribución de tu Patrimonio")
         fig = px.pie(df[df['Categoría'].str.contains('Ahorro|Inversión|Inversion|Efectivo', case=False, na=False)], 
                      values='Monto', names='Categoría', hole=0.5, color_discrete_sequence=px.colors.qualitative.Pastel)
-        st.plotly_chart(fig, use_
+        st.plotly_chart(fig, use_container_width=True)
+
+    with t3:
+        st.subheader("🚀 Proyección de Libertad Financiera")
+        cap = st.number_input("Capital Inicial", value=float(patrimonio_total))
+        int_anual = st.slider("Interés Anual (%)", 1, 20, 10)
+        años = st.slider("Tiempo (Años)", 1, 30, 5)
+        resultado = cap * (1 + (int_anual/100))**años
+        st.success(f"En {años} años, tu patrimonio sería de: ${resultado:,.2f}")
+
+    with t4:
+        st.subheader("🤖 Consultoría IA")
+        if st.text_input("¿Qué análisis necesitas hoy?"):
+            st.info(f"Daniel, con un patrimonio de ${patrimonio_total:,.2f}, estás cubriendo el {progreso_meta:.1f}% de tu objetivo principal.")
+
+except Exception as e:
+    st.error(f"Error en el sistema: {e}")
