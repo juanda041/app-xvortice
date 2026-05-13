@@ -17,7 +17,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- ENCABEZADO ---
 st.title("🏛️ Xvortice: Sistema Maestro")
 st.markdown(f"**Daniel** | Portafolio Global | Gestión de Capital")
 
@@ -25,30 +24,26 @@ st.markdown(f"**Daniel** | Portafolio Global | Gestión de Capital")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # Lectura forzada de la pestaña Movimientos
     df = conn.read(worksheet="Movimientos", ttl=0)
     df.columns = [str(c).strip() for c in df.columns]
     df = df.rename(columns={'Categoria': 'Categoría', 'Monto': 'Monto', 'Descripcion': 'Descripción'})
     df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
 
-    # --- 1. MERCADO EN TIEMPO REAL (INVERSIONES) ---
-    st.divider()
+    # --- 1. MONITOR DE MERCADO ---
     with st.expander("📈 Monitor de Mercado en Vivo", expanded=True):
-        activos = ["NVDA", "BTC-USD", "ETH-USD", "VOO", "BAC", "O"]
+        activos = ["NVDA", "BTC-USD", "VOO", "BAC", "O"]
         cols_m = st.columns(len(activos))
         for i, ticker in enumerate(activos):
             try:
                 data = yf.Ticker(ticker).history(period="1d")
                 precio = data['Close'].iloc[-1]
-                cambio = precio - data['Open'].iloc[0]
-                cols_m[i].metric(ticker, f"${precio:,.2f}", f"{cambio:,.2f}")
+                cols_m[i].metric(ticker, f"${precio:,.2f}")
             except:
                 continue
 
-    # --- 2. LÓGICA FINANCIERA ---
+    # --- 2. LÓGICA DE PATRIMONIO ---
     ingresos = df[df['Categoría'].str.contains('Ingreso', case=False, na=False)]['Monto'].sum()
     egresos = df[df['Categoría'].str.contains('Gasto|Egreso', case=False, na=False)]['Monto'].sum()
-    # Patrimonio = Entradas - Salidas (Ahorro Real)
     patrimonio_neto = ingresos - egresos
     meta_objetivo = 10000.00
     progreso_meta = (patrimonio_neto / meta_objetivo) * 100
@@ -57,12 +52,12 @@ try:
     st.divider()
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Ingresos Totales", f"${ingresos:,.2f}")
-    c2.metric("Gastos/Egresos", f"${egresos:,.2f}", delta=f"-{egresos:,.2f}", delta_color="inverse")
-    c3.metric("Patrimonio Neto", f"${patrimonio_neto:,.2f}", delta="Capital Real")
+    c2.metric("Egresos Totales", f"${egresos:,.2f}", delta=f"-{egresos:,.2f}", delta_color="inverse")
+    c3.metric("Patrimonio Neto", f"${patrimonio_neto:,.2f}")
     c4.metric("Meta $10k", f"{progreso_meta:.1f}%", f"${patrimonio_neto - meta_objetivo:,.2f}")
 
-    # --- 4. PANEL DE CONTROL (TABS) ---
-    t1, t2, t3, t4 = st.tabs(["💰 Flujo de Caja", "📊 Análisis Portafolio", "💹 Interés Compuesto", "🤖 Asistente IA"])
+    # --- 4. PANEL DE CONTROL ---
+    t1, t2, t3, t4 = st.tabs(["💰 Flujo de Caja", "📊 Análisis", "💹 Interés Compuesto", "🤖 Asistente IA"])
 
     with t1:
         col_form, col_view = st.columns([1, 2])
@@ -72,27 +67,30 @@ try:
                 f = st.date_input("Fecha", datetime.now())
                 c = st.selectbox("Categoría", ["Ingreso", "Gasto", "Inversión", "Ahorro"])
                 m = st.number_input("Monto ($)", min_value=0.0)
-                d = st.text_input("Detalle (Ej: Venta perfume, Compra ETF)")
+                d = st.text_input("Detalle")
                 if st.form_submit_button("Guardar"):
-                    st.success("Dato listo para el Excel")
+                    st.success("Dato listo para anotar en el Excel.")
         with col_view:
-            st.subheader("Últimos Movimientos")
+            st.subheader("Historial")
             st.dataframe(df.tail(10), use_container_width=True)
 
     with t2:
-        st.subheader("Distribución de Patrimonio")
-        fig_pie = px.pie(df, values='Monto', names='Categoría', hole=0.5, 
-                         color_discrete_sequence=px.colors.qualitative.Dark24)
+        fig_pie = px.pie(df, values='Monto', names='Categoría', hole=0.5, title="Distribución de Capital")
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with t3:
-        st.subheader("💰 Simulador de Libertad Financiera")
-        p_ini = st.number_input("Capital a Invertir", value=float(patrimonio_neto))
-        t_int = st.slider("Tasa Anual Esperada (%)", 1, 20, 10)
-        tiempo = st.slider("Horizonte (Años)", 1, 40, 10)
+        st.subheader("💰 Simulador de Interés Compuesto")
+        p_ini = st.number_input("Capital Actual", value=float(patrimonio_neto))
+        t_int = st.slider("Interés Anual (%)", 1, 20, 10)
+        tiempo = st.slider("Años", 1, 40, 10)
         res = p_ini * (1 + (t_int/100))**tiempo
-        st.success(f"Daniel, en {tiempo} años tu capital proyectado es: ${res:,.2f}")
+        st.success(f"Proyección a {tiempo} años: ${res:,.2f}")
 
     with t4:
         st.subheader("🤖 Consultoría IA Xvortice")
-        pregunta = st.text_input("Anal
+        pregunta = st.text_input("Analiza tu situación financiera:")
+        if pregunta:
+            st.info(f"Daniel, basándome en tus ingresos de ${ingresos:,.2f}, vas por excelente camino.")
+
+except Exception as e:
+    st.error(f"Error en el sistema maestro: {e}")
